@@ -1,0 +1,111 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "name": "System Administrator",
+      "initials": "AD"
+    },
+    {
+      "id": 2,
+      "username": "stock",
+      "password": "stock123",
+      "role": "stock_taker",
+      "name": "Stock Taker",
+      "initials": "ST"
+    },
+    {
+      "id": 3,
+      "username": "asset",
+      "password": "asset123",
+      "role": "asset_adder",
+      "name": "Asset Adder",
+      "initials": "AA"
+    }
+  ],
+  "inventory": [
+    {
+      "id": 1,
+      "name": "Laptop Dell XPS",
+      "quantity": 5,
+      "price": 1500,
+      "serial": "DLXPS001",
+      "category": "Electronics",
+      "date_added": "2024-12-05T10:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "name": "Office Chair",
+      "quantity": 12,
+      "price": 250,
+      "serial": "CHAIR002",
+      "category": "Furniture",
+      "date_added": "2024-12-05T10:00:00.000Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": 1,
+      "employeeName": "NOZI",
+      "employeeSurname": "moyos",
+      "srNumber": "SR001",
+      "extNumber": "101",
+      "officeNumber": "OFF-101",
+      "position": "operator",
+      "serialNumber": "HPCC001",
+      "model": "HP CC",
+      "operatingSystem": "Windows  11",
+      "msOffice": "Office 2021",
+      "email": "nozi@company.com",
+      "department": "finance",
+      "section": "audit",
+      "assetType": "laptop",
+      "purchaseDate": "2024-01-15",
+      "warrantyExpiry": "2025-01-15",
+      "assetStatus": "active"
+    },
+    {
+      "id": 2,
+      "employeeName": "BAM",
+      "employeeSurname": "MOYO",
+      "srNumber": "SR002",
+      "extNumber": "102",
+      "officeNumber": "OFF-102",
+      "position": "ACCOUNT",
+      "serialNumber": "DELL002",
+      "model": "DELL",
+      "operatingSystem": "Windows 11",
+      "msOffice": "Office 365",
+      "email": "bam@company.com",
+      "department": "finance",
+      "section": "budget",
+      "assetType": "desktop",
+      "purchaseDate": "2024-02-20",
+      "warrantyExpiry": "2025-02-20",
+      "assetStatus": "active"
+    },
+    {
+      "id": 1764839198682,
+      "employeeName": "JOJO",
+      "employeeSurname": "HLUNGA",
+      "srNumber": "35565",
+      "extNumber": "6789",
+      "officeNumber": "4567",
+      "position": "TOWN PLANNER",
+      "serialNumber": "67877gt",
+      "model": "HP INTEL CORE i5",
+      "operatingSystem": "windows11",
+      "msOffice": "office2019",
+      "email": "johlunga@gmail.com",
+      "department": "TOWN",
+      "section": "VALUATION & ESTATES",
+      "assetType": "desktop",
+      "purchaseDate": "2025-12-04",
+      "warrantyExpiry": "2026-03-04",
+      "assetStatus": "active",
+      "notes": ""
+    }
+  ]
+}

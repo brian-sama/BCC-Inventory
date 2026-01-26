@@ -1,0 +1,5 @@
+{
+  "name": "Bulawayo SIMS",
+  "description": "A robust asset and inventory management system for the Bulawayo City Council featuring role-based access, IndexedDB persistence, and real-time dashboard analytics.",
+  "requestFramePermissions": []
+}
