@@ -39,6 +39,7 @@ export interface Asset {
   section: string;
   warrantyExpiry: string;
   status: 'Active' | 'Under Repair' | 'Disposed';
+  serialNumber: string;
   createdAt: string;
 }
 

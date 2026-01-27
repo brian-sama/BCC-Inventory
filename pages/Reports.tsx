@@ -46,7 +46,6 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
             <div className="border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
                 <h2 className="text-2xl font-bold dark:text-white">Reporting Center</h2>
                 <p className="text-slate-500 dark:text-slate-400">Generate and export system data for administrative review.</p>
-                <div className="text-[10px] text-blue-500 font-mono mt-1">Component: Reports | Route: /reports</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <ReportCard

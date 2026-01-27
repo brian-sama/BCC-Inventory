@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { storage, STORES } from '../services/storageService';
 import { InventoryItem, Asset, SystemStats, ActivityLog } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const Dashboard: React.FC = () => {
-  const navigate = useNavigate();
   const [stats, setStats] = useState<SystemStats>({ totalInventoryValue: 0, totalItems: 0, totalAssets: 0, lowStockCount: 0 });
   const [recentLogs, setRecentLogs] = useState<ActivityLog[]>([]);
   const [inventoryByCat, setInventoryByCat] = useState<any[]>([]);
@@ -43,7 +41,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
+      <div>
         <h2 className="text-2xl font-bold dark:text-white">System Overview</h2>
         <p className="text-slate-500 dark:text-slate-400">Real-time statistics for Bulawayo City Council assets and stock.</p>
       </div>
@@ -55,23 +53,20 @@ const Dashboard: React.FC = () => {
           sub="Total market value"
           icon="💰"
           trend="primary"
-          onClick={() => navigate('/inventory')}
         />
         <StatCard
           title="Stock Items"
           value={stats.totalItems.toString()}
           sub="Unique SKUs tracked"
           icon="📦"
-          trend="neutral"
-          onClick={() => navigate('/inventory')}
+          trend="primary"
         />
         <StatCard
           title="Employee Assets"
           value={stats.totalAssets.toString()}
           sub="Assigned hardware"
           icon="💻"
-          trend="neutral"
-          onClick={() => navigate('/assets')}
+          trend="primary"
         />
         <StatCard
           title="Low Stock Alerts"
@@ -79,14 +74,13 @@ const Dashboard: React.FC = () => {
           sub="Requires attention"
           icon="⚠️"
           trend={stats.lowStockCount > 0 ? "danger" : "success"}
-          onClick={() => navigate('/inventory')}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
           <h3 className="text-lg font-bold mb-6 dark:text-white">Inventory by Category</h3>
-          <div className="h-[300px] w-full min-h-[300px]">
+          <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={inventoryByCat}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -112,7 +106,7 @@ const Dashboard: React.FC = () => {
             {recentLogs.length > 0 ? recentLogs.map((log) => (
               <div key={log.id} className="flex gap-4 p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                 <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 font-bold">
-                  {log.username[0].toUpperCase()}
+                  {log.username[0]?.toUpperCase() || 'U'}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start">
@@ -133,34 +127,37 @@ const Dashboard: React.FC = () => {
   );
 };
 
-const StatCard: React.FC<{ title: string, value: string, sub: string, icon: string, trend: 'primary' | 'danger' | 'success' | 'neutral', onClick?: () => void }> = ({ title, value, sub, icon, trend, onClick }) => {
-  const trendColors = {
-    primary: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20',
-    danger: 'text-red-600 bg-red-50 dark:bg-red-900/20',
-    success: 'text-green-600 bg-green-50 dark:bg-green-900/20',
-    neutral: 'text-slate-600 bg-slate-50 dark:bg-slate-800/50'
+const StatCard: React.FC<{ title: string, value: string, sub: string, icon: string, trend: 'primary' | 'danger' | 'success' | 'warning' }> = ({ title, value, sub, icon, trend }) => {
+  // Styles matching the user's provided image
+  const cardBg = 'bg-[#0f172a]'; // Dark navy background
+  const textColor = 'text-white';
+  const subTextColor = 'text-slate-400';
+
+  const badgeColors = {
+    primary: 'bg-blue-900/40 text-blue-400 border border-blue-500/20',
+    danger: 'bg-red-900/40 text-red-400 border border-red-500/20',
+    success: 'bg-green-900/40 text-green-400 border border-green-500/20',
+    warning: 'bg-amber-900/40 text-amber-400 border border-amber-500/20'
   };
 
   return (
-    <div
-      onClick={onClick}
-      className={`bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-all duration-300 ${onClick ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1 hover:border-blue-500/30' : ''}`}
-    >
-      <div className="flex justify-between items-start mb-4">
-        <span className="text-2xl">{icon}</span>
-        <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide ${trendColors[trend]}`}>
-          {trend === 'danger' ? 'Critical' : 'Live'}
+    <div className={`${cardBg} p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden group`}>
+      {/* Background accent glow */}
+      <div className="absolute -top-10 -right-10 w-24 h-24 bg-white/5 blur-3xl rounded-full group-hover:bg-white/10 transition-colors duration-500"></div>
+
+      <div className="flex justify-between items-start mb-6">
+        <div className="w-10 h-10 flex items-center justify-center text-2xl bg-white/5 rounded-xl border border-white/10">
+          {icon}
+        </div>
+        <div className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${badgeColors[trend] || badgeColors.primary}`}>
+          Live
         </div>
       </div>
-      <h4 className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">{title}</h4>
-      <div className="text-3xl font-bold dark:text-white mb-1">{value}</div>
-      <div className="flex justify-between items-center">
-        <p className="text-xs text-slate-400 dark:text-slate-500">{sub}</p>
-        {onClick && (
-          <svg className="w-4 h-4 text-slate-300 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        )}
+
+      <div>
+        <h4 className={`${subTextColor} text-sm font-medium mb-1`}>{title}</h4>
+        <div className={`${textColor} text-4xl font-bold mb-2`}>{value}</div>
+        <p className={`${subTextColor} text-xs font-medium opacity-80`}>{sub}</p>
       </div>
     </div>
   );

@@ -11,7 +11,6 @@ const Settings: React.FC<SettingsProps> = ({ user }) => (
         <div className="border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
             <h2 className="text-2xl font-bold dark:text-white">System Settings</h2>
             <p className="text-slate-500 dark:text-slate-400">Manage organizational configurations and security parameters.</p>
-            <div className="text-[10px] text-blue-500 font-mono mt-1">Component: Settings | Route: /settings</div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

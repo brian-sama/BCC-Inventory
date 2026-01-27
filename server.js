@@ -159,16 +159,26 @@ app.post('/api/inventory', verifyToken, async (req, res) => {
         const { data: result, error } = await supabase.from('inventory').insert([{
             item_name: itemData.name,
             description: itemData.description || '',
-            quantity: itemData.quantity || 1,
+            quantity: itemData.quantity || 0,
             unit_cost: itemData.price || 0,
             unit: itemData.unit || 'pcs',
-            item_code: itemData.serial || `ITEM-${Date.now()}`,
+            item_code: itemData.serialNumber || itemData.serial || `ITEM-${Date.now()}`,
             supplier: itemData.supplier || '',
             location: itemData.location || 'Store',
-            added_by: req.user.userId
+            reorder_level: itemData.lowStockThreshold || 10
+            // Removed added_by as it's missing from schema
         }]).select();
         if (error) throw error;
-        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'create', table_name: 'inventory', record_id: result[0].id, description: `Added new inventory item: ${itemData.name}` }]);
+
+        // Tracking is done in activity_log which has user_id
+        await supabase.from('activity_log').insert([{
+            user_id: req.user.userId,
+            action: 'create',
+            table_name: 'inventory',
+            record_id: result[0].id,
+            description: `Added new inventory item: ${itemData.name}`
+        }]);
+
         res.json({ success: true, itemId: result[0].id, message: 'Item added successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -184,7 +194,17 @@ app.get('/api/assets', verifyToken, async (req, res) => {
         if (assetStatus) query = query.eq('condition_status', assetStatus);
         const { data: rows, error } = await query.order('created_at', { ascending: false });
         if (error) throw error;
-        const assets = rows.map(asset => ({ ...asset, srNumber: asset.sr_number, serialNumber: asset.serial_number, assetStatus: asset.condition_status, addedDate: asset.created_at }));
+        const assets = rows.map(asset => ({
+            ...asset,
+            srNumber: asset.sr_number || asset.asset_code,
+            serialNumber: asset.serial_number,
+            assetStatus: asset.condition_status,
+            addedDate: asset.created_at,
+            extNumber: asset.ext_number,
+            officeNumber: asset.office_number,
+            position: asset.position,
+            section: asset.section
+        }));
         res.json({ success: true, assets });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -195,15 +215,81 @@ app.post('/api/assets', verifyToken, async (req, res) => {
     const assetData = req.body;
     try {
         const { data: result, error } = await supabase.from('assets').insert([{
-            name: assetData.name, surname: assetData.surname || '', sr_number: assetData.srNumber || '',
-            serial_number: assetData.serialNumber, department: assetData.department,
-            condition_status: assetData.assetStatus || 'excellent', asset_code: `ASSET-${Date.now()}`,
-            added_by: req.user.userId, position: assetData.position || '', model: assetData.model || '',
-            email: assetData.email || '', asset_type: assetData.assetType || 'other'
+            asset_name: assetData.type || 'Asset',
+            employee_name: assetData.employeeName,
+            asset_code: assetData.srNumber || `ASSET-${Date.now()}`,
+            sr_number: assetData.srNumber,
+            serial_number: assetData.serialNumber,
+            department: assetData.department || '',
+            location: assetData.location || 'Office',
+            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
+            model: assetData.model || '',
+            warranty_expiry: assetData.warrantyExpiry || null,
+            notes: assetData.notes || '',
+            ext_number: assetData.extNumber || '',
+            office_number: assetData.officeNumber || '',
+            position: assetData.position || '',
+            section: assetData.section || ''
         }]).select();
         if (error) throw error;
-        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'create', table_name: 'assets', record_id: result[0].id, description: `Added asset for: ${assetData.name}` }]);
+
+        await supabase.from('activity_log').insert([{
+            user_id: req.user.userId,
+            action: 'create',
+            table_name: 'assets',
+            record_id: result[0].id,
+            description: `Added asset for: ${assetData.employeeName}`
+        }]);
+
         res.json({ success: true, message: 'Asset added successfully!', id: result[0].id });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/assets', verifyToken, async (req, res) => {
+    const assetData = req.body;
+    try {
+        const { data: result, error } = await supabase.from('assets').update({
+            asset_name: assetData.type || 'Asset',
+            employee_name: assetData.employeeName,
+            asset_code: assetData.srNumber,
+            sr_number: assetData.srNumber,
+            serial_number: assetData.serialNumber,
+            department: assetData.department,
+            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
+            model: assetData.model || '',
+            warranty_expiry: assetData.warrantyExpiry || null,
+            ext_number: assetData.extNumber,
+            office_number: assetData.officeNumber,
+            position: assetData.position,
+            section: assetData.section
+        }).eq('id', assetData.id).select();
+
+        if (error) throw error;
+        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'update', table_name: 'assets', record_id: assetData.id, description: `Updated asset: ${assetData.employeeName}` }]);
+        res.json({ success: true, message: 'Asset updated successfully!' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/inventory', verifyToken, async (req, res) => {
+    const itemData = req.body;
+    try {
+        const { data: result, error } = await supabase.from('inventory').update({
+            item_name: itemData.name,
+            description: itemData.description || '',
+            quantity: itemData.quantity || 0,
+            unit_cost: itemData.price || 0,
+            item_code: itemData.serialNumber || '',
+            reorder_level: itemData.lowStockThreshold || 10,
+            category: itemData.category
+        }).eq('id', itemData.id).select();
+
+        if (error) throw error;
+        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'update', table_name: 'inventory', record_id: itemData.id, description: `Updated inventory item: ${itemData.name}` }]);
+        res.json({ success: true, message: 'Item updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

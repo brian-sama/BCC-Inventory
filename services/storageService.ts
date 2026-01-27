@@ -101,9 +101,10 @@ class StorageService {
 
       return data.assets.map(asset => ({
         id: (asset.id || asset.ID || '').toString(),
-        employeeName: asset.name ? `${asset.name} ${asset.surname || ''}`.trim() : 'Unknown Employee',
-        type: asset.asset_type || asset.type || 'Other',
-        srNumber: asset.sr_number || asset.serial || '',
+        employeeName: asset.employee_name || asset.name || 'Unknown Employee',
+        type: asset.asset_name || asset.asset_type || asset.type || 'Other',
+        srNumber: asset.sr_number || asset.asset_code || asset.serial || '',
+        serialNumber: asset.serial_number || '',
         extNumber: asset.ext_number || '',
         officeNumber: asset.office_number || '',
         position: asset.position || '',
@@ -131,13 +132,12 @@ class StorageService {
     await this.fetchApi('/assets', {
       method: 'POST',
       body: JSON.stringify({
-        name: nameParts[0],
-        surname: nameParts.slice(1).join(' '),
+        employeeName: asset.employeeName,
         srNumber: asset.srNumber,
-        serialNumber: asset.srNumber, // Using srNumber as serial if not provided
-        assetType: asset.type,
+        serialNumber: asset.serialNumber,
+        type: asset.type,
         department: asset.department,
-        assetStatus: 'active',
+        status: (asset.status || 'Active').toLowerCase(),
         position: asset.position,
         extNumber: asset.extNumber,
         officeNumber: asset.officeNumber,
@@ -211,6 +211,27 @@ class StorageService {
 
   async logActivity(userId: string, username: string, action: string, details: string): Promise<void> {
     console.log(`Log Activity: ${action} - ${details}`);
+    try {
+      await this.fetchApi('/activity-logs', {
+        method: 'POST',
+        body: JSON.stringify({ userId, username, action, details, timestamp: new Date().toISOString() })
+      });
+    } catch (err) {
+      console.warn('Logging failed:', err);
+    }
+  }
+
+  // Support for generic save/put used in new UI
+  async save(storeName: string, data: any): Promise<void> {
+    const endpoint = storeName === STORES.INVENTORY ? '/inventory' : (storeName === STORES.ASSETS ? '/assets' : `/${storeName}`);
+    await this.fetchApi(endpoint, {
+      method: data.id ? 'PUT' : 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async put(storeName: string, data: any): Promise<void> {
+    await this.save(storeName, data);
   }
 }
 
