@@ -231,11 +231,15 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
               </div>
               <div>
                 <label htmlFor="department" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Department</label>
-                <input id="department" required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} />
+                <input id="department" required type="text" title="Enter Department" placeholder="e.g. Finance" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} />
+              </div>
+              <div>
+                <label htmlFor="section" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Section</label>
+                <input id="section" type="text" title="Enter Section" placeholder="e.g. Accounts" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.section} onChange={(e) => setFormData({ ...formData, section: e.target.value })} />
               </div>
               <div>
                 <label htmlFor="officeNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Office No.</label>
-                <input id="officeNumber" type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.officeNumber} onChange={(e) => setFormData({ ...formData, officeNumber: e.target.value })} />
+                <input id="officeNumber" type="text" title="Enter Office Number" placeholder="e.g. 101" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.officeNumber} onChange={(e) => setFormData({ ...formData, officeNumber: e.target.value })} />
               </div>
             </div>
 
@@ -245,8 +249,8 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
             </h4>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Asset Type</label>
-                <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}>
+                <label htmlFor="assetType" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Asset Type</label>
+                <select id="assetType" title="Select Asset Type" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}>
                   <option value="">Select Type</option>
                   <option value="Laptop">Laptop</option>
                   <option value="Desktop">Desktop</option>
@@ -257,20 +261,20 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
                 </select>
               </div>
               <div className="col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 mt-4 md:mt-0 pt-4 md:pt-0">
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">SR Number</label>
-                <input required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.srNumber} onChange={(e) => setFormData({ ...formData, srNumber: e.target.value })} />
+                <label htmlFor="srNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">SR Number</label>
+                <input id="srNumber" required type="text" title="Enter SR Number" placeholder="e.g. SR-1234" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.srNumber} onChange={(e) => setFormData({ ...formData, srNumber: e.target.value })} />
               </div>
               <div className="col-span-2 md:col-span-1">
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Serial Number</label>
-                <input type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
+                <label htmlFor="serialNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Serial Number</label>
+                <input id="serialNumber" type="text" title="Enter Serial Number" placeholder="Manufacturer Serial" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
               </div>
               <div className="col-span-2 md:col-span-1">
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry</label>
-                <input required type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.warrantyExpiry} onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })} />
+                <label htmlFor="warrantyExpiry" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry</label>
+                <input id="warrantyExpiry" required type="date" title="Select Warranty Expiry Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.warrantyExpiry} onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Current Status</label>
-                <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}>
+                <label htmlFor="currentStatus" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Current Status</label>
+                <select id="currentStatus" title="Select Current Status" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}>
                   <option value="Active">Active</option>
                   <option value="Under Repair">Under Repair</option>
                   <option value="Disposed">Disposed</option>
