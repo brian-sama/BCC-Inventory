@@ -148,6 +148,13 @@ class StorageService {
     });
   }
 
+  async bulkAddAssets(assets: Partial<Asset>[]): Promise<void> {
+    await this.fetchApi('/assets/bulk', {
+      method: 'POST',
+      body: JSON.stringify(assets)
+    });
+  }
+
   // General Actions
   async delete(storeName: string, id: string): Promise<void> {
     console.log(`Storage: Deleting ${id} from ${storeName}`);

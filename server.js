@@ -213,15 +213,92 @@ app.get('/api/assets', verifyToken, async (req, res) => {
     }
 });
 
+// External Integration Endpoint (for Repairs System)
+app.get('/api/external/asset/:serial', async (req, res) => {
+    const { serial } = req.params;
+    const apiKey = req.headers['x-api-key'];
+
+    // Simple API Key check (You should ideally store this in .env)
+    if (apiKey !== process.env.EXTERNAL_API_KEY && apiKey !== 'BCC_REPAIRS_SYNC_2024') {
+        return res.status(401).json({ success: false, error: 'Unauthorized integration access' });
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('assets')
+            .select('asset_code, sr_number, employee_name, department')
+            .eq('serial_number', serial)
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return res.status(404).json({ success: false, error: 'Asset not found' });
+
+        res.json({
+            success: true,
+            srNumber: data.sr_number || data.asset_code,
+            owner: data.employee_name,
+            department: data.department
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Proxy for fetching status FROM Repairs System
+app.get('/api/assets/repair-status/:serial', verifyToken, async (req, res) => {
+    const { serial } = req.params;
+    const repairsUrl = process.env.REPAIRS_SYSTEM_URL || 'https://[your-netlify-site].netlify.app';
+
+    try {
+        // Use native fetch (Node 18+)
+        const response = await fetch(`${repairsUrl}/api/external/repair-status/${serial}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            // Can handle silent fail if system is down
+            return res.json({ success: false, message: 'Status unavailable' });
+        }
+
+        const data = await response.json();
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('Failed to fetch repair status:', error);
+        res.json({ success: false, message: 'Integration unavailable' });
+    }
+});
+
 app.post('/api/assets', verifyToken, async (req, res) => {
     const assetData = req.body;
     try {
+        // Validation: Check for duplicate serial number if provided
+        if (assetData.serialNumber) {
+            const { data: existing, error: checkError } = await supabase
+                .from('assets')
+                .select('id')
+                .eq('serial_number', assetData.serialNumber)
+                .maybeSingle();
+
+            if (existing) {
+                return res.status(400).json({
+                    success: false,
+                    error: `An asset with Serial Number "${assetData.serialNumber}" is already registered.`
+                });
+            }
+        }
+
+        // Generate a unique SR number if not provided (now standard for new registrations)
+        const year = new Date().getFullYear();
+        const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const generatedSR = assetData.srNumber || `BCC-SR-${year}-${suffix}`;
+
         const { data: result, error } = await supabase.from('assets').insert([{
             asset_name: assetData.type || 'Asset',
             employee_name: assetData.employeeName,
-            asset_code: assetData.srNumber || `ASSET-${Date.now()}`,
-            sr_number: assetData.srNumber,
-            serial_number: assetData.serialNumber,
+            asset_code: generatedSR,
+            sr_number: generatedSR,
+            serial_number: assetData.serialNumber || '',
             department: assetData.department || '',
             location: assetData.location || 'Office',
             condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
@@ -240,10 +317,51 @@ app.post('/api/assets', verifyToken, async (req, res) => {
             action: 'create',
             table_name: 'assets',
             record_id: result[0].id,
-            description: `Added asset for: ${assetData.employeeName}`
+            description: `Registered asset ${generatedSR} for: ${assetData.employeeName}`
         }]);
 
-        res.json({ success: true, message: 'Asset added successfully!', id: result[0].id });
+        res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: result[0].id });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/assets/bulk', verifyToken, async (req, res) => {
+    const assetsData = req.body;
+    if (!Array.isArray(assetsData)) {
+        return res.status(400).json({ success: false, error: 'Data must be an array of assets' });
+    }
+
+    try {
+        const formattedAssets = assetsData.map(assetData => ({
+            asset_name: assetData.type || 'Asset',
+            employee_name: assetData.employeeName,
+            asset_code: assetData.srNumber || `ASSET-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            sr_number: assetData.srNumber,
+            serial_number: assetData.serialNumber,
+            department: assetData.department || '',
+            location: assetData.location || 'Office',
+            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
+            model: assetData.model || '',
+            warranty_expiry: assetData.warrantyExpiry || null,
+            notes: assetData.notes || '',
+            ext_number: assetData.extNumber || '',
+            office_number: assetData.officeNumber || '',
+            position: assetData.position || '',
+            section: assetData.section || ''
+        }));
+
+        const { data: result, error } = await supabase.from('assets').insert(formattedAssets).select();
+        if (error) throw error;
+
+        await supabase.from('activity_log').insert([{
+            user_id: req.user.userId,
+            action: 'bulk_create',
+            table_name: 'assets',
+            description: `Bulk imported ${result.length} assets`
+        }]);
+
+        res.json({ success: true, message: `Successfully imported ${result.length} assets`, count: result.length });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

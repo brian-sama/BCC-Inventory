@@ -1,0 +1,4 @@
+Employee Name,SR Number,Asset Type,Department,Serial Number,Position,Ext Number,Office Number,Section,Warranty Expiry,Status
+John Doe,SR-9999,Laptop,IT,SN-12345,Developer,101,A1,Software,2027-01-01,Active
+Jane Smith,SR-8888,Desktop,Finance,SN-67890,Accountant,102,B2,Accounts,2026-12-31,Active
+Bob Wilson,SR-7777,Printer,HR,SN-54321,Manager,103,C3,Admin,2025-06-30,Under Repair
