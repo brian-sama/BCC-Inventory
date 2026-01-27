@@ -55,10 +55,19 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Unregister asset assigned to ${name}?`)) {
-      await storage.delete(STORES.ASSETS, id);
-      await storage.logActivity(user.id, user.username, 'DELETE_ASSET', `Deleted asset assigned to: ${name}`);
-      loadAssets();
+    if (!id) {
+      console.error('Cannot delete asset: Missing ID');
+      return;
+    }
+    if (confirm(`Unregister asset assigned to ${name}? This cannot be undone.`)) {
+      try {
+        await storage.delete(STORES.ASSETS, id);
+        await storage.logActivity(user.id, user.username, 'DELETE_ASSET', `Deleted asset assigned to: ${name}`);
+        loadAssets();
+      } catch (error) {
+        console.error('Delete failed', error);
+        alert('Failed to delete asset. Please try again.');
+      }
     }
   };
 
@@ -256,7 +265,7 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20">
       <div className="bg-white dark:bg-slate-900 w-full max-w-2xl my-8 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
           <h3 className="text-lg font-bold dark:text-white">{asset ? 'Edit Asset Registration' : 'Register New Asset'}</h3>
@@ -464,8 +473,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-lg my-8 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
           <h3 className="text-lg font-bold dark:text-white">Import Assets via CSV</h3>
           <button onClick={onClose} aria-label="Close" title="Close Import Modal" className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500">

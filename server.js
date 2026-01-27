@@ -326,6 +326,25 @@ app.post('/api/assets', verifyToken, async (req, res) => {
     }
 });
 
+app.delete('/api/assets/:id', verifyToken, async (req, res) => {
+    try {
+        const { error } = await supabase.from('assets').delete().eq('id', req.params.id);
+        if (error) throw error;
+        
+        await supabase.from('activity_log').insert([{
+             user_id: req.user.userId, 
+             action: 'delete', 
+             table_name: 'assets', 
+             record_id: req.params.id, 
+             description: `Deleted asset with ID: ${req.params.id}` 
+        }]);
+        
+        res.json({ success: true, message: 'Asset deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/api/assets/bulk', verifyToken, async (req, res) => {
     const assetsData = req.body;
     if (!Array.isArray(assetsData)) {
