@@ -468,7 +468,7 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
           <h3 className="text-lg font-bold dark:text-white">Import Assets via CSV</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500">
+          <button onClick={onClose} aria-label="Close" title="Close Import Modal" className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
@@ -489,6 +489,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
               <input
                 type="file"
                 accept=".csv"
+                title="Upload CSV File"
+                aria-label="Upload CSV File"
                 onChange={handleFileChange}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
