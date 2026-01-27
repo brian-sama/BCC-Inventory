@@ -67,10 +67,12 @@ function verifyToken(req, res, next) {
 // ===== ROUTES =====
 
 // Serve index.html for the root or let Vite handle it in dev
-app.get('/', (req, res) => {
+// Serve index.html for any non-API route to support SPA routing
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(__dirname, 'dist', 'index.html'), err => {
         if (err) {
-            // In dev mode, Vite serves the content, so we just provide a health check or minimal response
+            // In dev mode, Vite serves the content
             res.json({ message: "BCC SIMS API Server is running. Frontend is served by Vite on port 3000." });
         }
     });
@@ -384,4 +386,10 @@ async function startServer() {
     });
 }
 
-startServer();
+// Export the app for serverless deployment
+module.exports = app;
+
+// Only start the server if this file is run directly (not required as a module)
+if (require.main === module) {
+    startServer();
+}
