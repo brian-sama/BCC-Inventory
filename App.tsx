@@ -52,7 +52,8 @@ const App: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white p-6 text-center">
-        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+        <img src="/bcc-logo.jpg" alt="BCC Logo" className="w-20 h-20 object-contain mb-8 animate-pulse bg-white rounded-2xl p-1" />
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
         <h1 className="text-2xl font-bold mb-2">Bulawayo City Council</h1>
         <p className="text-slate-400">Loading City Inventory System...</p>
       </div>

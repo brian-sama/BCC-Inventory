@@ -50,8 +50,8 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
 
             {/* Logo & Desktop Nav */}
             <div className="flex">
-              <div className="flex-shrink-0 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">B</div>
+              <div className="flex-shrink-0 flex items-center gap-3 py-2 cursor-pointer" onClick={() => navigate('/')}>
+                <img src="/bcc-logo.jpg" alt="BCC Logo" className="w-10 h-10 object-contain p-0.5 bg-white rounded-lg shadow-sm border border-slate-100" />
                 <div className="hidden md:block">
                   <h1 className="text-sm font-bold leading-tight dark:text-white">Bulawayo</h1>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium tracking-wide">City Council SIMS</p>
