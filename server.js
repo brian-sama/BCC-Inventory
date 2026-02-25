@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const supabase = require('./supabase-client');
+const db = require('./db');
 require('dotenv').config();
 
 const app = express();
@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3001;
 const SESSION_COOKIE_NAME = 'sims_session_id';
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
 const DEFAULT_ALLOWED_ORIGINS = [
-    'http://localhost:3000', 
+    'http://localhost:3000',
     'http://127.0.0.1:3000',
     'https://bccinventory.netlify.app',
     'https://bccinventory.netlify.app/'
@@ -96,14 +96,8 @@ function getSessionExpiryCutoffIso() {
 async function createSession(userId, req) {
     const sessionId = crypto.randomBytes(48).toString('hex');
     const nowIso = new Date().toISOString();
-    const sessionRecord = {
-        user_id: userId,
-        session_token: sessionId,
-        ip_address: getClientIp(req),
-        user_agent: req.headers['user-agent'] || '',
-        is_active: true,
-        last_activity: nowIso
-    };
+    const clientIp = getClientIp(req);
+    const userAgent = req.headers['user-agent'] || '';
 
     if (useMemorySessions) {
         memorySessions.set(sessionId, {
@@ -114,22 +108,22 @@ async function createSession(userId, req) {
         return sessionId;
     }
 
-    const { error } = await supabase.from('user_sessions').insert([sessionRecord]);
-    if (error) {
-        if (isSessionTableMissingError(error)) {
-            useMemorySessions = true;
-            memorySessions.set(sessionId, {
-                user_id: userId,
-                last_activity: nowIso,
-                is_active: true
-            });
-            console.warn('user_sessions table missing. Falling back to in-memory sessions.');
-            return sessionId;
-        }
-        throw error;
+    try {
+        await db.query(
+            'INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent, is_active, last_activity) VALUES ($1, $2, $3, $4, $5, $6)',
+            [userId, sessionId, clientIp, userAgent, true, nowIso]
+        );
+        return sessionId;
+    } catch (error) {
+        console.error('Session creation failed:', error.message);
+        useMemorySessions = true;
+        memorySessions.set(sessionId, {
+            user_id: userId,
+            last_activity: nowIso,
+            is_active: true
+        });
+        return sessionId;
     }
-
-    return sessionId;
 }
 
 async function getActiveSession(sessionId) {
@@ -141,22 +135,17 @@ async function getActiveSession(sessionId) {
         return session;
     }
 
-    const { data: session, error } = await supabase
-        .from('user_sessions')
-        .select('session_token, user_id, last_activity, is_active')
-        .eq('session_token', sessionId)
-        .eq('is_active', true)
-        .maybeSingle();
-
-    if (error) {
-        if (isSessionTableMissingError(error)) {
-            useMemorySessions = true;
-            return memorySessions.get(sessionId) || null;
-        }
-        throw error;
+    try {
+        const result = await db.query(
+            'SELECT session_token, user_id, last_activity, is_active FROM user_sessions WHERE session_token = $1 AND is_active = true',
+            [sessionId]
+        );
+        return result.rows[0] || null;
+    } catch (error) {
+        console.error('Fetch session failed:', error.message);
+        useMemorySessions = true;
+        return memorySessions.get(sessionId) || null;
     }
-
-    return session;
 }
 
 function isSessionExpired(session) {
@@ -175,10 +164,7 @@ async function touchSession(sessionId) {
         return;
     }
 
-    await supabase
-        .from('user_sessions')
-        .update({ last_activity: nowIso })
-        .eq('session_token', sessionId);
+    await db.query('UPDATE user_sessions SET last_activity = $1 WHERE session_token = $2', [nowIso, sessionId]);
 }
 
 async function deactivateSession(sessionId) {
@@ -189,10 +175,7 @@ async function deactivateSession(sessionId) {
         return;
     }
 
-    await supabase
-        .from('user_sessions')
-        .update({ is_active: false })
-        .eq('session_token', sessionId);
+    await db.query('UPDATE user_sessions SET is_active = false WHERE session_token = $1', [sessionId]);
 }
 
 async function deactivateExpiredSessions() {
@@ -205,11 +188,10 @@ async function deactivateExpiredSessions() {
         return;
     }
 
-    await supabase
-        .from('user_sessions')
-        .update({ is_active: false })
-        .eq('is_active', true)
-        .lt('last_activity', getSessionExpiryCutoffIso());
+    await db.query(
+        'UPDATE user_sessions SET is_active = false WHERE is_active = true AND last_activity < $1',
+        [getSessionExpiryCutoffIso()]
+    );
 }
 
 async function authenticateSession(req, res, next) {
@@ -231,13 +213,11 @@ async function authenticateSession(req, res, next) {
             return res.status(401).json({ success: false, error: 'Session expired. Please sign in again.' });
         }
 
-        const { data: user, error } = await supabase
-            .from('users')
-            .select('id, username, name, role, initials, is_active')
-            .eq('id', session.user_id)
-            .maybeSingle();
-
-        if (error) throw error;
+        const result = await db.query(
+            'SELECT id, username, name, role, initials, is_active FROM users WHERE id = $1',
+            [session.user_id]
+        );
+        const user = result.rows[0];
 
         if (!user || !user.is_active) {
             await deactivateSession(sessionId);
@@ -279,13 +259,13 @@ app.use(express.static(path.join(__dirname)));
 // Initialize Supabase check
 async function initializeApp() {
     try {
-        console.log('🔧 Checking Supabase connection...');
-        const { data, error } = await supabase.from('users').select('id').limit(1);
-        if (error) throw error;
-        console.log('✅ Supabase connected successfully');
+        console.log('🔧 Checking Neon Database connection...');
+        const result = await db.query('SELECT 1 as connected');
+        if (result.rows.length === 0) throw new Error('Database ping failed');
+        console.log('✅ Neon Database connected successfully');
     } catch (error) {
-        console.error('❌ Supabase connection failed:', error.message);
-        console.log('💡 Please check your .env file and Supabase project status.');
+        console.error('❌ Neon Database connection failed:', error.message);
+        console.log('💡 Please check your .env file and Neon project status.');
         process.exit(1);
     }
 }
@@ -309,14 +289,19 @@ app.get('*', (req, res, next) => {
 
 app.get('/api/debug/db-status', async (req, res) => {
     try {
-        const { count: userCount } = await supabase.from('users').select('*', { count: 'exact', head: true });
-        const { count: inventoryCount } = await supabase.from('inventory').select('*', { count: 'exact', head: true });
-        const { count: assetCount } = await supabase.from('assets').select('*', { count: 'exact', head: true });
+        const userCount = (await db.query('SELECT count(*) FROM users')).rows[0].count;
+        const inventoryCount = (await db.query('SELECT count(*) FROM inventory')).rows[0].count;
+        const assetCount = (await db.query('SELECT count(*) FROM assets')).rows[0].count;
 
         res.json({
             status: 'Server is running',
             timestamp: new Date().toISOString(),
-            database: { usersCount: userCount, inventoryCount: inventoryCount, assetsCount: assetCount, connectionStatus: 'Connected (Supabase)' }
+            database: {
+                usersCount: parseInt(userCount),
+                inventoryCount: parseInt(inventoryCount),
+                assetsCount: parseInt(assetCount),
+                connectionStatus: 'Connected (Neon Postgres)'
+            }
         });
     } catch (error) {
         res.status(500).json({ status: 'Server error', error: error.message });
@@ -325,9 +310,8 @@ app.get('/api/debug/db-status', async (req, res) => {
 
 app.get('/api/health', async (req, res) => {
     try {
-        const { error } = await supabase.from('users').select('id').limit(1);
-        if (error) throw error;
-        res.json({ status: 'healthy', database: 'connected (Supabase)', timestamp: new Date().toISOString() });
+        await db.query('SELECT 1');
+        res.json({ status: 'healthy', database: 'connected (Neon Postgres)', timestamp: new Date().toISOString() });
     } catch (error) {
         res.status(500).json({ status: 'unhealthy', error: error.message });
     }
@@ -336,15 +320,15 @@ app.get('/api/health', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
-        const { data: users, error } = await supabase.from('users').select('*').eq('username', username).eq('is_active', true);
-        if (error) throw error;
+        const result = await db.query('SELECT * FROM users WHERE username = $1 AND is_active = true', [username]);
+        const users = result.rows;
 
         if (users && users.length > 0) {
             const user = users[0];
             const isValidPassword = await bcrypt.compare(password, user.password);
             if (isValidPassword) {
                 const sessionId = await createSession(user.id, req);
-                await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', user.id);
+                await db.query('UPDATE users SET last_login = $1 WHERE id = $2', [new Date().toISOString(), user.id]);
                 res.cookie(SESSION_COOKIE_NAME, sessionId, getSessionCookieOptions());
                 const normalizedUser = normalizeUserIdentity(user);
                 res.json({
@@ -388,12 +372,21 @@ app.get('/api/auth/me', authenticateSession, async (req, res) => {
 app.get('/api/inventory', authenticateSession, async (req, res) => {
     const { search, category } = req.query;
     try {
-        let query = supabase.from('inventory').select('*').eq('status', 'active');
-        if (search) query = query.or(`item_name.ilike.%${search}%,description.ilike.%${search}%`);
-        if (category) query = query.eq('category_id', category);
-        const { data: items, error } = await query.order('created_at', { ascending: false });
-        if (error) throw error;
-        res.json({ success: true, items });
+        let queryText = 'SELECT * FROM inventory WHERE status = $1';
+        let queryParams = ['active'];
+
+        if (search) {
+            queryParams.push(`%${search}%`);
+            queryText += ` AND (item_name ILIKE $${queryParams.length} OR description ILIKE $${queryParams.length})`;
+        }
+        if (category) {
+            queryParams.push(category);
+            queryText += ` AND category_id = $${queryParams.length}`;
+        }
+
+        queryText += ' ORDER BY created_at DESC';
+        const result = await db.query(queryText, queryParams);
+        res.json({ success: true, items: result.rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -402,30 +395,31 @@ app.get('/api/inventory', authenticateSession, async (req, res) => {
 app.post('/api/inventory', authenticateSession, async (req, res) => {
     const itemData = req.body;
     try {
-        const { data: result, error } = await supabase.from('inventory').insert([{
-            item_name: itemData.name,
-            description: itemData.description || '',
-            quantity: itemData.quantity || 0,
-            unit_cost: itemData.price || 0,
-            unit: itemData.unit || 'pcs',
-            item_code: itemData.serialNumber || itemData.serial || `ITEM-${Date.now()}`,
-            supplier: itemData.supplier || '',
-            location: itemData.location || 'Store',
-            reorder_level: itemData.lowStockThreshold || 10
-            // Removed added_by as it's missing from schema
-        }]).select();
-        if (error) throw error;
+        const itemCode = itemData.serialNumber || itemData.serial || `ITEM-${Date.now()}`;
+        const queryText = `
+            INSERT INTO inventory (item_name, description, quantity, unit_cost, unit, item_code, supplier, location, reorder_level)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id
+        `;
+        const result = await db.query(queryText, [
+            itemData.name,
+            itemData.description || '',
+            itemData.quantity || 0,
+            itemData.price || 0,
+            itemData.unit || 'pcs',
+            itemCode,
+            itemData.supplier || '',
+            itemData.location || 'Store',
+            itemData.lowStockThreshold || 10
+        ]);
+        const newItemId = result.rows[0].id;
 
-        // Tracking is done in activity_log which has user_id
-        await supabase.from('activity_log').insert([{
-            user_id: req.user.userId,
-            action: 'create',
-            table_name: 'inventory',
-            record_id: result[0].id,
-            description: `Added new inventory item: ${itemData.name}`
-        }]);
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
+            [req.user.userId, 'create', 'inventory', newItemId, `Added new inventory item: ${itemData.name}`]
+        );
 
-        res.json({ success: true, itemId: result[0].id, message: 'Item added successfully!' });
+        res.json({ success: true, itemId: newItemId, message: 'Item added successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -434,13 +428,26 @@ app.post('/api/inventory', authenticateSession, async (req, res) => {
 app.get('/api/assets', authenticateSession, async (req, res) => {
     const { search, department, assetStatus } = req.query;
     try {
-        let query = supabase.from('assets').select('*');
-        if (search) query = query.or(`name.ilike.%${search}%,surname.ilike.%${search}%,serial_number.ilike.%${search}%`);
-        if (department) query = query.eq('department', department);
-        if (assetStatus) query = query.eq('condition_status', assetStatus);
-        const { data: rows, error } = await query.order('created_at', { ascending: false });
-        if (error) throw error;
-        const assets = rows.map(asset => ({
+        let queryText = 'SELECT * FROM assets WHERE 1=1';
+        let queryParams = [];
+
+        if (search) {
+            queryParams.push(`%${search}%`);
+            queryText += ` AND (employee_name ILIKE $${queryParams.length} OR serial_number ILIKE $${queryParams.length})`;
+        }
+        if (department) {
+            queryParams.push(department);
+            queryText += ` AND department = $${queryParams.length}`;
+        }
+        if (assetStatus) {
+            queryParams.push(assetStatus.toLowerCase());
+            queryText += ` AND condition_status = $${queryParams.length}`;
+        }
+
+        queryText += ' ORDER BY created_at DESC';
+        const result = await db.query(queryText, queryParams);
+
+        const assets = result.rows.map(asset => ({
             ...asset,
             srNumber: asset.sr_number || asset.asset_code,
             serialNumber: asset.serial_number,
@@ -462,19 +469,17 @@ app.get('/api/external/asset/:serial', async (req, res) => {
     const { serial } = req.params;
     const apiKey = req.headers['x-api-key'];
 
-    // Simple API Key check (You should ideally store this in .env)
     if (apiKey !== process.env.EXTERNAL_API_KEY && apiKey !== 'BCC_REPAIRS_SYNC_2024') {
         return res.status(401).json({ success: false, error: 'Unauthorized integration access' });
     }
 
     try {
-        const { data, error } = await supabase
-            .from('assets')
-            .select('asset_code, sr_number, employee_name, department')
-            .eq('serial_number', serial)
-            .maybeSingle();
+        const result = await db.query(
+            'SELECT asset_code, sr_number, employee_name, department FROM assets WHERE serial_number = $1',
+            [serial]
+        );
+        const data = result.rows[0];
 
-        if (error) throw error;
         if (!data) return res.status(404).json({ success: false, error: 'Asset not found' });
 
         res.json({
@@ -516,15 +521,9 @@ app.get('/api/assets/repair-status/:serial', authenticateSession, async (req, re
 app.post('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
-        // Validation: Check for duplicate serial number if provided
         if (assetData.serialNumber) {
-            const { data: existing, error: checkError } = await supabase
-                .from('assets')
-                .select('id')
-                .eq('serial_number', assetData.serialNumber)
-                .maybeSingle();
-
-            if (existing) {
+            const check = await db.query('SELECT id FROM assets WHERE serial_number = $1', [assetData.serialNumber]);
+            if (check.rows.length > 0) {
                 return res.status(400).json({
                     success: false,
                     error: `An asset with Serial Number "${assetData.serialNumber}" is already registered.`
@@ -532,39 +531,43 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
             }
         }
 
-        // Generate a unique SR number if not provided (now standard for new registrations)
         const year = new Date().getFullYear();
         const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
         const generatedSR = assetData.srNumber || `BCC-SR-${year}-${suffix}`;
 
-        const { data: result, error } = await supabase.from('assets').insert([{
-            asset_name: assetData.type || 'Asset',
-            employee_name: assetData.employeeName,
-            asset_code: generatedSR,
-            sr_number: generatedSR,
-            serial_number: assetData.serialNumber || '',
-            department: assetData.department || '',
-            location: assetData.location || 'Office',
-            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
-            model: assetData.model || '',
-            warranty_expiry: assetData.warrantyExpiry || null,
-            notes: assetData.notes || '',
-            ext_number: assetData.extNumber || '',
-            office_number: assetData.officeNumber || '',
-            position: assetData.position || '',
-            section: assetData.section || ''
-        }]).select();
-        if (error) throw error;
+        const queryText = `
+            INSERT INTO assets (
+                asset_name, employee_name, asset_code, sr_number, serial_number, department, 
+                location, condition_status, model, warranty_expiry, notes, 
+                ext_number, office_number, position, section
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            RETURNING id
+        `;
+        const result = await db.query(queryText, [
+            assetData.type || 'Asset',
+            assetData.employeeName,
+            generatedSR,
+            generatedSR,
+            assetData.serialNumber || '',
+            assetData.department || '',
+            assetData.location || 'Office',
+            (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
+            assetData.model || '',
+            assetData.warrantyExpiry || null,
+            assetData.notes || '',
+            assetData.extNumber || '',
+            assetData.officeNumber || '',
+            assetData.position || '',
+            assetData.section || ''
+        ]);
+        const newAssetId = result.rows[0].id;
 
-        await supabase.from('activity_log').insert([{
-            user_id: req.user.userId,
-            action: 'create',
-            table_name: 'assets',
-            record_id: result[0].id,
-            description: `Registered asset ${generatedSR} for: ${assetData.employeeName}`
-        }]);
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
+            [req.user.userId, 'create', 'assets', newAssetId, `Registered asset ${generatedSR} for: ${assetData.employeeName}`]
+        );
 
-        res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: result[0].id });
+        res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: newAssetId });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -572,17 +575,13 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
 
 app.delete('/api/assets/:id', authenticateSession, async (req, res) => {
     try {
-        const { error } = await supabase.from('assets').delete().eq('id', req.params.id);
-        if (error) throw error;
-        
-        await supabase.from('activity_log').insert([{
-             user_id: req.user.userId, 
-             action: 'delete', 
-             table_name: 'assets', 
-             record_id: req.params.id, 
-             description: `Deleted asset with ID: ${req.params.id}` 
-        }]);
-        
+        await db.query('DELETE FROM assets WHERE id = $1', [req.params.id]);
+
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
+            [req.user.userId, 'delete', 'assets', req.params.id, `Deleted asset with ID: ${req.params.id}`]
+        );
+
         res.json({ success: true, message: 'Asset deleted successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -596,35 +595,44 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
     }
 
     try {
-        const formattedAssets = assetsData.map(assetData => ({
-            asset_name: assetData.type || 'Asset',
-            employee_name: assetData.employeeName,
-            asset_code: assetData.srNumber || `ASSET-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            sr_number: assetData.srNumber,
-            serial_number: assetData.serialNumber,
-            department: assetData.department || '',
-            location: assetData.location || 'Office',
-            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
-            model: assetData.model || '',
-            warranty_expiry: assetData.warrantyExpiry || null,
-            notes: assetData.notes || '',
-            ext_number: assetData.extNumber || '',
-            office_number: assetData.officeNumber || '',
-            position: assetData.position || '',
-            section: assetData.section || ''
-        }));
+        const queryText = `
+            INSERT INTO assets (
+                asset_name, employee_name, asset_code, sr_number, serial_number, department, 
+                location, condition_status, model, warranty_expiry, notes, 
+                ext_number, office_number, position, section
+            ) VALUES ${assetsData.map((_, i) => `($${i * 15 + 1}, $${i * 15 + 2}, $${i * 15 + 3}, $${i * 15 + 4}, $${i * 15 + 5}, $${i * 15 + 6}, $${i * 15 + 7}, $${i * 15 + 8}, $${i * 15 + 9}, $${i * 15 + 10}, $${i * 15 + 11}, $${i * 15 + 12}, $${i * 15 + 13}, $${i * 15 + 14}, $${i * 15 + 15})`).join(', ')}
+            RETURNING id
+        `;
 
-        const { data: result, error } = await supabase.from('assets').insert(formattedAssets).select();
-        if (error) throw error;
+        const params = [];
+        assetsData.forEach(asset => {
+            params.push(
+                asset.type || 'Asset',
+                asset.employeeName,
+                asset.srNumber || `ASSET-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                asset.srNumber,
+                asset.serialNumber,
+                asset.department || '',
+                asset.location || 'Office',
+                (asset.status || asset.assetStatus || 'active').toLowerCase(),
+                asset.model || '',
+                asset.warrantyExpiry || null,
+                asset.notes || '',
+                asset.extNumber || '',
+                asset.officeNumber || '',
+                asset.position || '',
+                asset.section || ''
+            );
+        });
 
-        await supabase.from('activity_log').insert([{
-            user_id: req.user.userId,
-            action: 'bulk_create',
-            table_name: 'assets',
-            description: `Bulk imported ${result.length} assets`
-        }]);
+        const result = await db.query(queryText, params);
 
-        res.json({ success: true, message: `Successfully imported ${result.length} assets`, count: result.length });
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, description) VALUES ($1, $2, $3, $4)',
+            [req.user.userId, 'bulk_create', 'assets', `Bulk imported ${result.rows.length} assets`]
+        );
+
+        res.json({ success: true, message: `Successfully imported ${result.rows.length} assets`, count: result.rows.length });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -633,24 +641,35 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 app.put('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
-        const { data: result, error } = await supabase.from('assets').update({
-            asset_name: assetData.type || 'Asset',
-            employee_name: assetData.employeeName,
-            asset_code: assetData.srNumber,
-            sr_number: assetData.srNumber,
-            serial_number: assetData.serialNumber,
-            department: assetData.department,
-            condition_status: (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
-            model: assetData.model || '',
-            warranty_expiry: assetData.warrantyExpiry || null,
-            ext_number: assetData.extNumber,
-            office_number: assetData.officeNumber,
-            position: assetData.position,
-            section: assetData.section
-        }).eq('id', assetData.id).select();
+        const queryText = `
+            UPDATE assets SET 
+                asset_name = $1, employee_name = $2, asset_code = $3, sr_number = $4, 
+                serial_number = $5, department = $6, condition_status = $7, model = $8, 
+                warranty_expiry = $9, ext_number = $10, office_number = $11, 
+                position = $12, section = $13
+            WHERE id = $14
+        `;
+        await db.query(queryText, [
+            assetData.type || 'Asset',
+            assetData.employeeName,
+            assetData.srNumber,
+            assetData.srNumber,
+            assetData.serialNumber,
+            assetData.department,
+            (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
+            assetData.model || '',
+            assetData.warrantyExpiry || null,
+            assetData.extNumber,
+            assetData.officeNumber,
+            assetData.position,
+            assetData.section,
+            assetData.id
+        ]);
 
-        if (error) throw error;
-        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'update', table_name: 'assets', record_id: assetData.id, description: `Updated asset: ${assetData.employeeName}` }]);
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
+            [req.user.userId, 'update', 'assets', assetData.id, `Updated asset: ${assetData.employeeName}`]
+        );
         res.json({ success: true, message: 'Asset updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -660,18 +679,27 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
 app.put('/api/inventory', authenticateSession, async (req, res) => {
     const itemData = req.body;
     try {
-        const { data: result, error } = await supabase.from('inventory').update({
-            item_name: itemData.name,
-            description: itemData.description || '',
-            quantity: itemData.quantity || 0,
-            unit_cost: itemData.price || 0,
-            item_code: itemData.serialNumber || '',
-            reorder_level: itemData.lowStockThreshold || 10,
-            category: itemData.category
-        }).eq('id', itemData.id).select();
+        const queryText = `
+            UPDATE inventory SET 
+                item_name = $1, description = $2, quantity = $3, unit_cost = $4, 
+                item_code = $5, reorder_level = $6, category_id = $7
+            WHERE id = $8
+        `;
+        await db.query(queryText, [
+            itemData.name,
+            itemData.description || '',
+            itemData.quantity || 0,
+            itemData.price || 0,
+            itemData.serialNumber || '',
+            itemData.lowStockThreshold || 10,
+            itemData.category,
+            itemData.id
+        ]);
 
-        if (error) throw error;
-        await supabase.from('activity_log').insert([{ user_id: req.user.userId, action: 'update', table_name: 'inventory', record_id: itemData.id, description: `Updated inventory item: ${itemData.name}` }]);
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
+            [req.user.userId, 'update', 'inventory', itemData.id, `Updated inventory item: ${itemData.name}`]
+        );
         res.json({ success: true, message: 'Item updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -680,18 +708,33 @@ app.put('/api/inventory', authenticateSession, async (req, res) => {
 
 app.get('/api/stats/dashboard', authenticateSession, async (req, res) => {
     try {
-        const { data: inventory } = await supabase.from('inventory').select('price:unit_cost, quantity').eq('status', 'active');
-        const { count: lowStock } = await supabase.from('inventory').select('*', { count: 'exact', head: true }).lte('quantity', 10);
-        const { count: totalAssets } = await supabase.from('assets').select('*', { count: 'exact', head: true });
-        const { data: activity } = await supabase.from('activity_log').select('*, users(name)').order('timestamp', { ascending: false }).limit(10);
+        const inventoryResult = await db.query('SELECT unit_cost as price, quantity FROM inventory WHERE status = $1', ['active']);
+        const lowStockResult = await db.query('SELECT count(*) FROM inventory WHERE quantity <= 10');
+        const totalAssetsResult = await db.query('SELECT count(*) FROM assets');
+        const activityResult = await db.query(`
+            SELECT a.*, u.name as user_name 
+            FROM activity_log a 
+            LEFT JOIN users u ON a.user_id = u.id 
+            ORDER BY a.timestamp DESC 
+            LIMIT 10
+        `);
 
-        const totalValue = inventory.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const inventory = inventoryResult.rows;
+        const totalValue = inventory.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
+
         res.json({
             success: true,
             stats: {
-                inventory: { totalItems: inventory.length, totalValue, lowStockItems: lowStock },
-                assets: { totalAssets, activeAssets: totalAssets },
-                recentActivity: activity.map(a => ({ ...a, user_name: a.users?.name }))
+                inventory: {
+                    totalItems: inventory.length,
+                    totalValue,
+                    lowStockItems: parseInt(lowStockResult.rows[0].count)
+                },
+                assets: {
+                    totalAssets: parseInt(totalAssetsResult.rows[0].count),
+                    activeAssets: parseInt(totalAssetsResult.rows[0].count)
+                },
+                recentActivity: activityResult.rows
             }
         });
     } catch (error) {
@@ -701,9 +744,8 @@ app.get('/api/stats/dashboard', authenticateSession, async (req, res) => {
 
 app.get('/api/categories', authenticateSession, async (req, res) => {
     try {
-        const { data, error } = await supabase.from('categories').select('*').order('name');
-        if (error) throw error;
-        res.json({ success: true, categories: data });
+        const result = await db.query('SELECT * FROM categories ORDER BY name');
+        res.json({ success: true, categories: result.rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -711,11 +753,10 @@ app.get('/api/categories', authenticateSession, async (req, res) => {
 
 app.get('/api/users', authenticateSession, async (req, res) => {
     try {
-        const { data, error } = await supabase.from('users').select('id, username, name, role, last_login, is_active').order('name');
-        if (error) throw error;
+        const result = await db.query('SELECT id, username, name, role, last_login, is_active FROM users ORDER BY name');
         res.json({
             success: true,
-            users: data.map(u => {
+            users: result.rows.map(u => {
                 const normalizedUser = normalizeUserIdentity(u);
                 return { ...u, ...normalizedUser, fullName: normalizedUser.name };
             })
@@ -729,16 +770,21 @@ app.post('/api/users', authenticateSession, async (req, res) => {
     const userData = req.body;
     try {
         const hashedPassword = await bcrypt.hash(userData.password || 'Bcc12345!', 10);
-        const { data: result, error } = await supabase.from('users').insert([{
-            username: userData.username,
-            name: userData.fullName,
-            password: hashedPassword,
-            role: userData.role || 'Stock Taker',
-            is_active: true,
-            initials: userData.fullName.split(' ').map(n => n[0]).join('').toUpperCase()
-        }]).select();
-        if (error) throw error;
-        res.json({ success: true, message: 'User created successfully', userId: result[0].id });
+        const initials = userData.fullName.split(' ').map(n => n[0]).join('').toUpperCase();
+        const queryText = `
+            INSERT INTO users (username, name, password, role, is_active, initials)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        `;
+        const result = await db.query(queryText, [
+            userData.username,
+            userData.fullName,
+            hashedPassword,
+            userData.role || 'Stock Taker',
+            true,
+            initials
+        ]);
+        res.json({ success: true, message: 'User created successfully', userId: result.rows[0].id });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -746,8 +792,7 @@ app.post('/api/users', authenticateSession, async (req, res) => {
 
 app.delete('/api/users/:id', authenticateSession, async (req, res) => {
     try {
-        const { error } = await supabase.from('users').update({ is_active: false }).eq('id', req.params.id);
-        if (error) throw error;
+        await db.query('UPDATE users SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ success: true, message: 'User deactivated successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -756,21 +801,27 @@ app.delete('/api/users/:id', authenticateSession, async (req, res) => {
 
 app.get('/api/activity-logs', authenticateSession, async (req, res) => {
     try {
-        const { data, error } = await supabase.from('activity_log').select('*, users(name, role)').order('timestamp', { ascending: false }).limit(50);
-        if (error) throw error;
-        res.json({ success: true, logs: data.map(l => ({ ...l, user_name: l.users?.name, user_role: l.users?.role })) });
+        const queryText = `
+            SELECT a.*, u.name as user_name, u.role as user_role 
+            FROM activity_log a 
+            LEFT JOIN users u ON a.user_id = u.id 
+            ORDER BY a.timestamp DESC 
+            LIMIT 50
+        `;
+        const result = await db.query(queryText);
+        res.json({ success: true, logs: result.rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.use((err, req, res, next) => { 
-    console.error('Unhandled Error:', err); 
-    res.status(500).json({ 
-        success: false, 
+app.use((err, req, res, next) => {
+    console.error('Unhandled Error:', err);
+    res.status(500).json({
+        success: false,
         error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
         details: err.message
-    }); 
+    });
 });
 
 setInterval(() => {
