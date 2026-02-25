@@ -14,7 +14,9 @@ const DEFAULT_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'https://bccinventory.netlify.app',
-    'https://bccinventory.netlify.app/'
+    'https://bccinventory.netlify.app/',
+    'https://bccsims.netlify.app',
+    'https://bccsims.netlify.app/'
 ];
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_ORIGIN || DEFAULT_ALLOWED_ORIGINS.join(','))
     .split(',')
