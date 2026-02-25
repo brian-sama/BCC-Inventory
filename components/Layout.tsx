@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
-import { ICONS, COLORS } from '../constants';
+import { ICONS } from '../constants';
 import { User, UserRole } from '../types';
 
 interface LayoutProps {
@@ -26,13 +26,13 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
   if (!user) return <Outlet />;
 
   const navItems = [
-    { name: 'Dashboard', icon: ICONS.Dashboard, path: '/', roles: [UserRole.ADMIN, UserRole.STOCK_TAKER, UserRole.ASSET_ADDER] },
-    { name: 'Inventory', icon: ICONS.Inventory, path: '/inventory', roles: [UserRole.ADMIN, UserRole.STOCK_TAKER] },
-    { name: 'Assets', icon: ICONS.Assets, path: '/assets', roles: [UserRole.ADMIN, UserRole.ASSET_ADDER] },
-    { name: 'Reports', icon: ICONS.Reports, path: '/reports', roles: [UserRole.ADMIN] },
-    { name: 'Audit Trail', icon: ICONS.Reports, path: '/audit-trail', roles: [UserRole.ADMIN] },
+    { name: 'Dashboard', icon: ICONS.Dashboard, path: '/', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.STOCK_TAKER, UserRole.ASSET_ADDER] },
+    { name: 'Inventory', icon: ICONS.Inventory, path: '/inventory', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.STOCK_TAKER] },
+    { name: 'Assets', icon: ICONS.Assets, path: '/assets', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.ASSET_ADDER] },
+    { name: 'Reports', icon: ICONS.Reports, path: '/reports', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
+    { name: 'Audit Trail', icon: ICONS.Reports, path: '/audit-trail', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
     { name: 'User Management', icon: ICONS.Assets, path: '/users', roles: [UserRole.HEAD_ADMIN] },
-    { name: 'Settings', icon: ICONS.Settings, path: '/settings', roles: [UserRole.ADMIN] },
+    { name: 'Settings', icon: ICONS.Settings, path: '/settings', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
   ];
 
   const filteredNavItems = navItems.filter(item => {
@@ -41,12 +41,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
   });
 
   return (
-    <div className={`min-h-screen flex flex-col ${isDark ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
+    <div className={`min-h-screen flex flex-col ${isDark ? 'dark bg-civic-bg' : 'bg-civic-bg'}`}>
 
       {/* Top Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50">
+      <header className="sticky top-0 z-50 border-b border-civic-border bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-900/90 dark:supports-[backdrop-filter]:bg-slate-900/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
+          <div className="flex h-[4.5rem] justify-between py-1">
 
             {/* Logo & Desktop Nav */}
             <div className="flex">
@@ -58,16 +58,16 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
-              <nav className="hidden md:ml-8 md:flex md:space-x-1">
+              <nav className="hidden md:ml-8 md:flex md:space-x-2">
                 {filteredNavItems.map((item) => (
                   <NavLink
                     key={item.name}
                     to={item.path}
                     className={({ isActive }) => `
-                      inline-flex items-center px-3 pt-1 border-b-2 text-sm font-medium transition-colors h-full
+                      inline-flex h-full items-center border-b-2 px-3 pt-1 text-sm font-medium transition-colors
                       ${isActive
-                        ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-200'}
+                        ? 'border-civic-primary text-civic-primary dark:border-blue-400 dark:text-blue-300'
+                        : 'border-transparent text-civic-muted hover:border-slate-300 hover:text-civic-text dark:text-slate-400 dark:hover:text-slate-200'}
                     `}
                   >
                     <item.icon className="w-4 h-4 mr-2" />
@@ -81,7 +81,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsDark(!isDark)}
-                className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                className="focus-ring rounded-full p-2 text-civic-muted transition-colors hover:bg-slate-100 hover:text-civic-text dark:text-slate-400 dark:hover:bg-slate-800"
                 title="Toggle Theme"
               >
                 {isDark ? (
@@ -95,14 +95,14 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                 )}
               </button>
 
-              <div className="hidden md:flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-slate-800">
+              <div className="hidden md:flex items-center gap-3 border-l border-civic-border pl-4 dark:border-slate-800">
                 <div className="text-right">
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">{user.username}</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 capitalize">{user.role}</p>
+                  <p className="text-xs font-semibold text-civic-text dark:text-white">{user.username}</p>
+                  <p className="text-[10px] capitalize text-civic-muted dark:text-slate-400">{user.role}</p>
                 </div>
                 <button
                   onClick={onLogout}
-                  className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
+                  className="focus-ring rounded-full p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
                   title="Sign Out"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -115,7 +115,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
               <div className="flex items-center md:hidden">
                 <button
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                  className="inline-flex items-center justify-center p-2 rounded-md text-slate-400 hover:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="focus-ring inline-flex items-center justify-center rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-500 dark:hover:bg-slate-800"
                 >
                   <span className="sr-only">Open main menu</span>
                   {isMobileMenuOpen ? (
@@ -135,7 +135,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="bg-white md:hidden border-t border-civic-border dark:border-slate-800 dark:bg-slate-900">
             <div className="pt-2 pb-3 space-y-1 px-2">
               {filteredNavItems.map((item) => (
                 <NavLink
@@ -145,8 +145,8 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                   className={({ isActive }) => `
                     flex items-center gap-3 px-3 py-2 rounded-lg text-base font-medium transition-colors
                     ${isActive
-                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
-                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/50'}
+                      ? 'bg-civic-primaryLight text-civic-primary dark:bg-blue-900/20 dark:text-blue-300'
+                      : 'text-civic-muted hover:bg-slate-50 hover:text-civic-text dark:text-slate-400 dark:hover:bg-slate-800/50'}
                   `}
                 >
                   <item.icon className="w-5 h-5" />
@@ -154,19 +154,19 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                 </NavLink>
               ))}
             </div>
-            <div className="pt-4 pb-4 border-t border-slate-200 dark:border-slate-800 px-4">
+            <div className="px-4 pb-4 pt-4 border-t border-civic-border dark:border-slate-800">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
                   <ICONS.User className="w-5 h-5 text-slate-500" />
                 </div>
                 <div>
-                  <div className="text-base font-medium text-slate-800 dark:text-white">{user.username}</div>
-                  <div className="text-sm font-medium text-slate-500 dark:text-slate-400 capitalize">{user.role}</div>
+                  <div className="text-base font-medium text-civic-text dark:text-white">{user.username}</div>
+                  <div className="text-sm capitalize font-medium text-civic-muted dark:text-slate-400">{user.role}</div>
                 </div>
               </div>
               <button
                 onClick={onLogout}
-                className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+                className="focus-ring mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-civic-sm transition-colors hover:bg-red-700"
               >
                 Sign Out
               </button>
@@ -176,7 +176,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <Outlet />
       </main>
     </div>

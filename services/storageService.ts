@@ -1,18 +1,19 @@
-
 import { InventoryItem, Asset, User, UserRole, ActivityLog, SystemStats } from '../types';
 
 const API_BASE = '/api';
 
 class StorageService {
   private async fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem('sims_token');
-    const headers = {
+    const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     };
 
-    const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -23,37 +24,70 @@ class StorageService {
   }
 
   async init(): Promise<void> {
-    // Check if server is healthy
     try {
-      await fetch(`${API_BASE}/health`);
-      console.log('✅ API Server is healthy');
+      await fetch(`${API_BASE}/health`, { credentials: 'include' });
+      console.log('API Server is healthy');
     } catch (err) {
-      console.warn('⚠️ API Server unreachable. Ensure Node.js server is running on port 3001.');
+      console.warn('API Server unreachable. Ensure Node.js server is running on port 3001.');
     }
   }
 
-  // Authentication
-  async login(username: string, password: string): Promise<{ success: boolean; user: User; token: string }> {
-    const response = await this.fetchApi<{ success: boolean; user: any; token: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password })
-    });
+  private mapUser(user: any): User {
+    const isSystemAdmin = (user?.username || '').toLowerCase() === 'admin';
+    return {
+      id: user.id,
+      username: user.username,
+      fullName: user.full_name || user.fullName || user.name || user.username,
+      role: isSystemAdmin ? UserRole.HEAD_ADMIN : this.normalizeRole(user.role),
+      lastLogin: user.lastLogin,
+    };
+  }
 
-    if (response.success) {
-      localStorage.setItem('sims_token', response.token);
-    }
+  // Authentication
+  async login(username: string, password: string): Promise<{ success: boolean; user: User }> {
+    const response = await this.fetchApi<{ success: boolean; user: any }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
 
     return {
       success: response.success,
-      user: {
-        id: response.user.id,
-        username: response.user.username,
-        fullName: response.user.full_name || response.user.fullName || response.user.username,
-        role: this.normalizeRole(response.user.role),
-        lastLogin: response.user.lastLogin
-      },
-      token: response.token
+      user: this.mapUser(response.user),
     };
+  }
+
+  async getCurrentUser(): Promise<User | null> {
+    try {
+      const response = await fetch(`${API_BASE}/auth/me`, {
+        credentials: 'include',
+      });
+
+      if (response.status === 401) {
+        return null;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data?.success || !data?.user) return null;
+      return this.mapUser(data.user);
+    } catch (err) {
+      console.warn('Failed to resolve current session:', err);
+      return null;
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.fetchApi('/auth/logout', {
+        method: 'POST',
+      });
+    } catch (err) {
+      console.warn('Logout request failed:', err);
+    }
   }
 
   // Inventory
@@ -66,12 +100,12 @@ class StorageService {
         id: (item.id || item.ID || '').toString(),
         name: item.item_name || item.name || 'Unknown Item',
         category: item.category || 'Uncategorized',
-        quantity: parseInt(item.quantity) || 0,
+        quantity: parseInt(item.quantity, 10) || 0,
         price: parseFloat(item.unit_cost || item.price) || 0,
         serialNumber: item.item_code || item.serial || '',
         description: item.description || '',
         lowStockThreshold: 10,
-        createdAt: item.created_at || new Date().toISOString()
+        createdAt: item.created_at || new Date().toISOString(),
       }));
     } catch (err) {
       console.error('getInventory failed:', err);
@@ -88,8 +122,8 @@ class StorageService {
         quantity: item.quantity,
         price: item.price,
         serial: item.serialNumber,
-        category: item.category
-      })
+        category: item.category,
+      }),
     });
   }
 
@@ -112,7 +146,7 @@ class StorageService {
         section: asset.section || '',
         warrantyExpiry: asset.warranty_expiry || new Date().toISOString(),
         status: this.mapStatus(asset.condition_status),
-        createdAt: asset.created_at || new Date().toISOString()
+        createdAt: asset.created_at || new Date().toISOString(),
       }));
     } catch (err) {
       console.error('getAssets failed:', err);
@@ -128,7 +162,6 @@ class StorageService {
   }
 
   async addAsset(asset: Partial<Asset>): Promise<void> {
-    const nameParts = (asset.employeeName || '').split(' ');
     await this.fetchApi('/assets', {
       method: 'POST',
       body: JSON.stringify({
@@ -143,23 +176,22 @@ class StorageService {
         officeNumber: asset.officeNumber,
         section: asset.section,
         warrantyExpiry: asset.warrantyExpiry,
-        notes: ''
-      })
+        notes: '',
+      }),
     });
   }
 
   async bulkAddAssets(assets: Partial<Asset>[]): Promise<void> {
     await this.fetchApi('/assets/bulk', {
       method: 'POST',
-      body: JSON.stringify(assets)
+      body: JSON.stringify(assets),
     });
   }
 
   // General Actions
   async delete(storeName: string, id: string): Promise<void> {
-    console.log(`Storage: Deleting ${id} from ${storeName}`);
     await this.fetchApi(`/${storeName}/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
     });
   }
 
@@ -171,7 +203,7 @@ class StorageService {
         totalInventoryValue: data.stats?.inventory?.totalValue || 0,
         totalItems: data.stats?.inventory?.totalItems || 0,
         totalAssets: data.stats?.assets?.totalAssets || 0,
-        lowStockCount: data.stats?.inventory?.lowStockItems || 0
+        lowStockCount: data.stats?.inventory?.lowStockItems || 0,
       };
     } catch (err) {
       console.error('getDashboardStats failed:', err);
@@ -190,7 +222,7 @@ class StorageService {
         userId: log.user_id?.toString() || '',
         username: log.user_name || 'System',
         action: log.action || 'ACTIVITY',
-        details: log.description || log.details || ''
+        details: log.description || log.details || '',
       }));
     } catch (err) {
       console.error('getActivityLogs failed:', err);
@@ -200,28 +232,26 @@ class StorageService {
 
   // Generic methods map to existing API
   async getAll<T>(storeName: string): Promise<T[]> {
-    if (storeName === 'inventory') return await this.getInventory() as any;
-    if (storeName === 'assets') return await this.getAssets() as any;
-    if (storeName === 'logs') return await this.getActivityLogs() as any;
+    if (storeName === 'inventory') return await this.getInventory() as T[];
+    if (storeName === 'assets') return await this.getAssets() as T[];
+    if (storeName === 'logs') return await this.getActivityLogs() as T[];
     return [];
   }
 
   private normalizeRole(role: string): UserRole | string {
     const r = (role || '').toLowerCase();
-    console.log('Normalizing role:', role, '->', r);
-    if (r === 'head administrator' || r === 'head_admin' || r === 'super_admin' || r === 'super admin') return UserRole.HEAD_ADMIN;
+    if (r === 'head administrator' || r === 'head_admin' || r === 'super_admin' || r === 'super admin' || r === 'system administrator') return UserRole.HEAD_ADMIN;
     if (r === 'admin') return UserRole.ADMIN;
     if (r === 'stock taker' || r === 'stock_taker' || r === 'stock') return UserRole.STOCK_TAKER;
     if (r === 'asset adder' || r === 'asset_adder' || r === 'asset') return UserRole.ASSET_ADDER;
-    return UserRole.STOCK_TAKER; // Default fallback
+    return UserRole.STOCK_TAKER;
   }
 
   async logActivity(userId: string, username: string, action: string, details: string): Promise<void> {
-    console.log(`Log Activity: ${action} - ${details}`);
     try {
       await this.fetchApi('/activity-logs', {
         method: 'POST',
-        body: JSON.stringify({ userId, username, action, details, timestamp: new Date().toISOString() })
+        body: JSON.stringify({ userId, username, action, details, timestamp: new Date().toISOString() }),
       });
     } catch (err) {
       console.warn('Logging failed:', err);
@@ -233,7 +263,7 @@ class StorageService {
     const endpoint = storeName === STORES.INVENTORY ? '/inventory' : (storeName === STORES.ASSETS ? '/assets' : `/${storeName}`);
     await this.fetchApi(endpoint, {
       method: data.id ? 'PUT' : 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     });
   }
 
@@ -247,6 +277,7 @@ export const STORES = {
   ASSETS: 'assets',
   USERS: 'users',
   LOGS: 'logs',
+  ACTIVITY_LOGS: 'logs',
   SETTINGS: 'settings'
 };
 

@@ -2,18 +2,271 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const supabase = require('./supabase-client');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const SESSION_COOKIE_NAME = 'sims_session_id';
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_ORIGIN || DEFAULT_ALLOWED_ORIGINS.join(','))
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+const memorySessions = new Map();
+let useMemorySessions = false;
+
+app.set('trust proxy', 1);
+
+function parseCookies(req) {
+    const header = req.headers.cookie;
+    if (!header) return {};
+
+    return header.split(';').reduce((cookies, pair) => {
+        const [rawKey, ...rest] = pair.split('=');
+        const key = rawKey ? rawKey.trim() : '';
+        if (!key) return cookies;
+        cookies[key] = decodeURIComponent(rest.join('=').trim());
+        return cookies;
+    }, {});
+}
+
+function getSessionCookieOptions() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    return {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'strict' : 'lax',
+        maxAge: SESSION_TTL_MS,
+        path: '/'
+    };
+}
+
+function getSessionIdFromRequest(req) {
+    const cookies = parseCookies(req);
+    return cookies[SESSION_COOKIE_NAME] || null;
+}
+
+function getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded && typeof forwarded === 'string') {
+        return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || null;
+}
+
+function normalizeUserIdentity(user) {
+    const username = `${user?.username || ''}`.toLowerCase();
+    if (username === 'admin') {
+        return {
+            id: user.id,
+            username: user.username,
+            name: 'System Administrator',
+            role: 'Head Administrator',
+            initials: user.initials || 'SA'
+        };
+    }
+
+    return {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        initials: user.initials
+    };
+}
+
+function isSessionTableMissingError(error) {
+    if (!error) return false;
+    const errorText = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+    return error.code === '42P01' || errorText.includes('user_sessions');
+}
+
+function getSessionExpiryCutoffIso() {
+    return new Date(Date.now() - SESSION_TTL_MS).toISOString();
+}
+
+async function createSession(userId, req) {
+    const sessionId = crypto.randomBytes(48).toString('hex');
+    const nowIso = new Date().toISOString();
+    const sessionRecord = {
+        user_id: userId,
+        session_token: sessionId,
+        ip_address: getClientIp(req),
+        user_agent: req.headers['user-agent'] || '',
+        is_active: true,
+        last_activity: nowIso
+    };
+
+    if (useMemorySessions) {
+        memorySessions.set(sessionId, {
+            user_id: userId,
+            last_activity: nowIso,
+            is_active: true
+        });
+        return sessionId;
+    }
+
+    const { error } = await supabase.from('user_sessions').insert([sessionRecord]);
+    if (error) {
+        if (isSessionTableMissingError(error)) {
+            useMemorySessions = true;
+            memorySessions.set(sessionId, {
+                user_id: userId,
+                last_activity: nowIso,
+                is_active: true
+            });
+            console.warn('user_sessions table missing. Falling back to in-memory sessions.');
+            return sessionId;
+        }
+        throw error;
+    }
+
+    return sessionId;
+}
+
+async function getActiveSession(sessionId) {
+    if (!sessionId) return null;
+
+    if (useMemorySessions) {
+        const session = memorySessions.get(sessionId);
+        if (!session || !session.is_active) return null;
+        return session;
+    }
+
+    const { data: session, error } = await supabase
+        .from('user_sessions')
+        .select('session_token, user_id, last_activity, is_active')
+        .eq('session_token', sessionId)
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (error) {
+        if (isSessionTableMissingError(error)) {
+            useMemorySessions = true;
+            return memorySessions.get(sessionId) || null;
+        }
+        throw error;
+    }
+
+    return session;
+}
+
+function isSessionExpired(session) {
+    if (!session?.last_activity) return true;
+    return new Date(session.last_activity).getTime() < Date.now() - SESSION_TTL_MS;
+}
+
+async function touchSession(sessionId) {
+    const nowIso = new Date().toISOString();
+    if (useMemorySessions) {
+        const session = memorySessions.get(sessionId);
+        if (session) {
+            session.last_activity = nowIso;
+            memorySessions.set(sessionId, session);
+        }
+        return;
+    }
+
+    await supabase
+        .from('user_sessions')
+        .update({ last_activity: nowIso })
+        .eq('session_token', sessionId);
+}
+
+async function deactivateSession(sessionId) {
+    if (!sessionId) return;
+
+    if (useMemorySessions) {
+        memorySessions.delete(sessionId);
+        return;
+    }
+
+    await supabase
+        .from('user_sessions')
+        .update({ is_active: false })
+        .eq('session_token', sessionId);
+}
+
+async function deactivateExpiredSessions() {
+    if (useMemorySessions) {
+        for (const [sessionId, session] of memorySessions.entries()) {
+            if (isSessionExpired(session)) {
+                memorySessions.delete(sessionId);
+            }
+        }
+        return;
+    }
+
+    await supabase
+        .from('user_sessions')
+        .update({ is_active: false })
+        .eq('is_active', true)
+        .lt('last_activity', getSessionExpiryCutoffIso());
+}
+
+async function authenticateSession(req, res, next) {
+    try {
+        const sessionId = getSessionIdFromRequest(req);
+        if (!sessionId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+
+        const session = await getActiveSession(sessionId);
+        if (!session) {
+            res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+            return res.status(401).json({ success: false, error: 'Session is invalid or expired' });
+        }
+
+        if (isSessionExpired(session)) {
+            await deactivateSession(sessionId);
+            res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+            return res.status(401).json({ success: false, error: 'Session expired. Please sign in again.' });
+        }
+
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('id, username, name, role, initials, is_active')
+            .eq('id', session.user_id)
+            .maybeSingle();
+
+        if (error) throw error;
+
+        if (!user || !user.is_active) {
+            await deactivateSession(sessionId);
+            res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+            return res.status(401).json({ success: false, error: 'User account is inactive' });
+        }
+
+        const normalizedUser = normalizeUserIdentity(user);
+        req.user = {
+            userId: normalizedUser.id,
+            username: normalizedUser.username,
+            name: normalizedUser.name,
+            role: normalizedUser.role,
+            initials: normalizedUser.initials
+        };
+        req.sessionId = sessionId;
+        await touchSession(sessionId);
+
+        next();
+    } catch (error) {
+        next(error);
+    }
+}
 
 // Middleware
 app.use(cors({
-    origin: '*',
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -29,38 +282,6 @@ async function initializeApp() {
         console.error('❌ Supabase connection failed:', error.message);
         console.log('💡 Please check your .env file and Supabase project status.');
         process.exit(1);
-    }
-}
-
-// Simple JWT token generation
-function generateToken(user) {
-    const payload = {
-        userId: user.id,
-        username: user.username,
-        role: user.role,
-        exp: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
-    };
-    return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
-
-// Verify token middleware
-function verifyToken(req, res, next) {
-    const authHeader = req.headers.authorization;
-    let token = null;
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.replace('Bearer ', '');
-    }
-
-    if (!token) return res.status(401).json({ error: 'No token provided' });
-
-    try {
-        const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
-        if (Date.now() > decoded.exp) return res.status(401).json({ error: 'Token expired' });
-        req.user = decoded;
-        next();
-    } catch (error) {
-        return res.status(401).json({ error: 'Invalid token' });
     }
 }
 
@@ -117,12 +338,13 @@ app.post('/api/auth/login', async (req, res) => {
             const user = users[0];
             const isValidPassword = await bcrypt.compare(password, user.password);
             if (isValidPassword) {
-                const token = generateToken(user);
+                const sessionId = await createSession(user.id, req);
                 await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', user.id);
+                res.cookie(SESSION_COOKIE_NAME, sessionId, getSessionCookieOptions());
+                const normalizedUser = normalizeUserIdentity(user);
                 res.json({
                     success: true,
-                    user: { id: user.id, username: user.username, name: user.name, role: user.role, initials: user.initials },
-                    token
+                    user: normalizedUser
                 });
             } else res.status(401).json({ success: false, error: 'Invalid username or password' });
         } else res.status(401).json({ success: false, error: 'Invalid username or password' });
@@ -131,17 +353,34 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-app.get('/api/auth/me', verifyToken, async (req, res) => {
+app.post('/api/auth/logout', authenticateSession, async (req, res) => {
     try {
-        const { data: user, error } = await supabase.from('users').select('*').eq('id', req.user.userId).single();
-        if (error) throw error;
-        res.json({ success: true, user: { id: user.id, username: user.username, name: user.name, role: user.role, initials: user.initials } });
+        await deactivateSession(req.sessionId);
+        res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+        res.json({ success: true, message: 'Signed out successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.get('/api/inventory', verifyToken, async (req, res) => {
+app.get('/api/auth/me', authenticateSession, async (req, res) => {
+    try {
+        res.json({
+            success: true,
+            user: {
+                id: req.user.userId,
+                username: req.user.username,
+                name: req.user.name,
+                role: req.user.role,
+                initials: req.user.initials
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/inventory', authenticateSession, async (req, res) => {
     const { search, category } = req.query;
     try {
         let query = supabase.from('inventory').select('*').eq('status', 'active');
@@ -155,7 +394,7 @@ app.get('/api/inventory', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/api/inventory', verifyToken, async (req, res) => {
+app.post('/api/inventory', authenticateSession, async (req, res) => {
     const itemData = req.body;
     try {
         const { data: result, error } = await supabase.from('inventory').insert([{
@@ -187,7 +426,7 @@ app.post('/api/inventory', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/assets', verifyToken, async (req, res) => {
+app.get('/api/assets', authenticateSession, async (req, res) => {
     const { search, department, assetStatus } = req.query;
     try {
         let query = supabase.from('assets').select('*');
@@ -245,7 +484,7 @@ app.get('/api/external/asset/:serial', async (req, res) => {
 });
 
 // Proxy for fetching status FROM Repairs System
-app.get('/api/assets/repair-status/:serial', verifyToken, async (req, res) => {
+app.get('/api/assets/repair-status/:serial', authenticateSession, async (req, res) => {
     const { serial } = req.params;
     const repairsUrl = process.env.REPAIRS_SYSTEM_URL || 'https://[your-netlify-site].netlify.app';
 
@@ -269,7 +508,7 @@ app.get('/api/assets/repair-status/:serial', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/api/assets', verifyToken, async (req, res) => {
+app.post('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
         // Validation: Check for duplicate serial number if provided
@@ -326,7 +565,7 @@ app.post('/api/assets', verifyToken, async (req, res) => {
     }
 });
 
-app.delete('/api/assets/:id', verifyToken, async (req, res) => {
+app.delete('/api/assets/:id', authenticateSession, async (req, res) => {
     try {
         const { error } = await supabase.from('assets').delete().eq('id', req.params.id);
         if (error) throw error;
@@ -345,7 +584,7 @@ app.delete('/api/assets/:id', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/api/assets/bulk', verifyToken, async (req, res) => {
+app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
     const assetsData = req.body;
     if (!Array.isArray(assetsData)) {
         return res.status(400).json({ success: false, error: 'Data must be an array of assets' });
@@ -386,7 +625,7 @@ app.post('/api/assets/bulk', verifyToken, async (req, res) => {
     }
 });
 
-app.put('/api/assets', verifyToken, async (req, res) => {
+app.put('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
         const { data: result, error } = await supabase.from('assets').update({
@@ -413,7 +652,7 @@ app.put('/api/assets', verifyToken, async (req, res) => {
     }
 });
 
-app.put('/api/inventory', verifyToken, async (req, res) => {
+app.put('/api/inventory', authenticateSession, async (req, res) => {
     const itemData = req.body;
     try {
         const { data: result, error } = await supabase.from('inventory').update({
@@ -434,7 +673,7 @@ app.put('/api/inventory', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/stats/dashboard', verifyToken, async (req, res) => {
+app.get('/api/stats/dashboard', authenticateSession, async (req, res) => {
     try {
         const { data: inventory } = await supabase.from('inventory').select('price:unit_cost, quantity').eq('status', 'active');
         const { count: lowStock } = await supabase.from('inventory').select('*', { count: 'exact', head: true }).lte('quantity', 10);
@@ -455,7 +694,7 @@ app.get('/api/stats/dashboard', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/categories', verifyToken, async (req, res) => {
+app.get('/api/categories', authenticateSession, async (req, res) => {
     try {
         const { data, error } = await supabase.from('categories').select('*').order('name');
         if (error) throw error;
@@ -465,17 +704,23 @@ app.get('/api/categories', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/users', verifyToken, async (req, res) => {
+app.get('/api/users', authenticateSession, async (req, res) => {
     try {
         const { data, error } = await supabase.from('users').select('id, username, name, role, last_login, is_active').order('name');
         if (error) throw error;
-        res.json({ success: true, users: data.map(u => ({ ...u, fullName: u.name })) });
+        res.json({
+            success: true,
+            users: data.map(u => {
+                const normalizedUser = normalizeUserIdentity(u);
+                return { ...u, ...normalizedUser, fullName: normalizedUser.name };
+            })
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.post('/api/users', verifyToken, async (req, res) => {
+app.post('/api/users', authenticateSession, async (req, res) => {
     const userData = req.body;
     try {
         const hashedPassword = await bcrypt.hash(userData.password || 'Bcc12345!', 10);
@@ -494,7 +739,7 @@ app.post('/api/users', verifyToken, async (req, res) => {
     }
 });
 
-app.delete('/api/users/:id', verifyToken, async (req, res) => {
+app.delete('/api/users/:id', authenticateSession, async (req, res) => {
     try {
         const { error } = await supabase.from('users').update({ is_active: false }).eq('id', req.params.id);
         if (error) throw error;
@@ -504,7 +749,7 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/activity-logs', verifyToken, async (req, res) => {
+app.get('/api/activity-logs', authenticateSession, async (req, res) => {
     try {
         const { data, error } = await supabase.from('activity_log').select('*, users(name, role)').order('timestamp', { ascending: false }).limit(50);
         if (error) throw error;
@@ -515,6 +760,10 @@ app.get('/api/activity-logs', verifyToken, async (req, res) => {
 });
 
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ success: false, error: 'Internal server error' }); });
+
+setInterval(() => {
+    deactivateExpiredSessions().catch(error => console.error('Session cleanup failed:', error.message));
+}, 15 * 60 * 1000);
 
 async function startServer() {
     await initializeApp();

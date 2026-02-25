@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, UserRole } from '../types';
-import { storage, STORES } from '../services/storageService';
+import { User } from '../types';
+import { storage } from '../services/storageService';
 
 interface LoginProps {
   onLogin: (u: User) => void;
@@ -23,7 +23,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       if (result.success) {
         onLogin(result.user);
-        // Token is already stored in storageService.ts during login call
       } else {
         setError('Invalid username or password. Please try again.');
       }

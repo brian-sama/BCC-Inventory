@@ -5,6 +5,7 @@ import { TableSkeleton } from '../components/Skeleton';
 import { useToast } from '../components/ToastProvider';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ICONS } from '../constants';
+import PageHeader from '../components/ui/PageHeader';
 
 const UserManagement: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -47,28 +48,31 @@ const UserManagement: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-2xl font-bold dark:text-white">Staff Management</h2>
-                    <p className="text-slate-500 dark:text-slate-400">Manage council staff system accounts and access levels.</p>
-                </div>
-                <button
-                    onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-sm"
-                >
-                    <ICONS.Plus className="w-5 h-5" />
-                    Create New User
-                </button>
-            </div>
+        <div className="app-page">
+            <PageHeader
+                title="Staff Management"
+                subtitle="Manage council staff system accounts and access levels."
+                actions={
+                    <button
+                        onClick={() => {
+                            setEditingUser(null);
+                            setIsModalOpen(true);
+                        }}
+                        className="civic-button-primary"
+                    >
+                        <ICONS.Plus className="w-5 h-5" />
+                        Create New User
+                    </button>
+                }
+            />
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden min-h-[400px]">
+            <div className="surface-card overflow-hidden min-h-[400px] p-0">
                 <div className="overflow-x-auto">
                     {loading ? (
                         <TableSkeleton rows={6} cols={5} />
                     ) : (
-                        <table className="w-full text-left">
-                            <thead className="text-xs uppercase tracking-wider font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                        <table className="table-shell text-left">
+                            <thead className="table-head text-xs uppercase tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4">Full Name</th>
                                     <th className="px-6 py-4">Username</th>
@@ -77,11 +81,11 @@ const UserManagement: React.FC = () => {
                                     <th className="px-6 py-4 text-right">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                            <tbody className="divide-y divide-slate-200">
                                 {users.map((u) => (
-                                    <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                        <td className="px-6 py-4 font-semibold dark:text-white">{u.fullName}</td>
-                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{u.username}</td>
+                                    <tr key={u.id} className="table-row transition-colors">
+                                        <td className="px-6 py-4 font-semibold text-civic-text dark:text-white">{u.fullName}</td>
+                                        <td className="px-6 py-4 text-sm text-civic-muted dark:text-slate-400">{u.username}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${u.role.toLowerCase() === 'admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
                                                 u.role.toLowerCase() === 'head administrator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :

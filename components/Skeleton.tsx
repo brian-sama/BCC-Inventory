@@ -36,7 +36,7 @@ export const TableSkeleton: React.FC<{ rows?: number, cols?: number }> = ({ rows
 };
 
 export const CardSkeleton: React.FC = () => (
-    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 space-y-4">
+    <div className="surface-card space-y-4">
         <div className="flex justify-between items-start">
             <Skeleton className="w-8 h-8 rounded-full" />
             <Skeleton className="w-12 h-4" />

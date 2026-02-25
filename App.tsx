@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { storage, STORES } from './services/storageService';
+import { storage } from './services/storageService';
 import { User, UserRole } from './types';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -19,16 +19,11 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('App mounting, user in state:', user?.username);
     const initApp = async () => {
       try {
         await storage.init();
-        const savedUser = localStorage.getItem('sims_session');
-        if (savedUser) {
-          const parsed = JSON.parse(savedUser);
-          console.log('Found saved session:', parsed);
-          setUser(parsed);
-        }
+        const currentUser = await storage.getCurrentUser();
+        if (currentUser) setUser(currentUser);
       } catch (err) {
         console.error('Failed to initialize system:', err);
       } finally {
@@ -39,23 +34,20 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogin = (u: User) => {
-    console.log('Login success in App.tsx:', u);
     setUser(u);
-    localStorage.setItem('sims_session', JSON.stringify(u));
   };
 
   const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('sims_session');
+    storage.logout().finally(() => setUser(null));
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white p-6 text-center">
+      <div className="min-h-screen bg-civic-bg flex flex-col items-center justify-center text-civic-text p-6 text-center">
         <img src="/bcc-logo.jpg" alt="BCC Logo" className="w-20 h-20 object-contain mb-8 animate-pulse bg-white rounded-2xl p-1" />
-        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+        <div className="w-12 h-12 border-4 border-civic-primary border-t-transparent rounded-full animate-spin mb-6"></div>
         <h1 className="text-2xl font-bold mb-2">Bulawayo City Council</h1>
-        <p className="text-slate-400">Loading City Inventory System...</p>
+        <p className="text-civic-muted">Loading City Inventory System...</p>
       </div>
     );
   }
@@ -74,13 +66,13 @@ const App: React.FC = () => {
             <Route path="/" element={<Dashboard />} />
 
             <Route path="/inventory" element={
-              user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.STOCK_TAKER.toLowerCase()].includes(user.role.toLowerCase())
+              user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.HEAD_ADMIN.toLowerCase(), UserRole.STOCK_TAKER.toLowerCase()].includes(user.role.toLowerCase())
                 ? <Inventory user={user!} />
                 : <Navigate to="/" replace />
             } />
 
             <Route path="/assets" element={
-              user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.ASSET_ADDER.toLowerCase()].includes(user.role.toLowerCase())
+              user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.HEAD_ADMIN.toLowerCase(), UserRole.ASSET_ADDER.toLowerCase()].includes(user.role.toLowerCase())
                 ? <Assets user={user!} />
                 : <Navigate to="/" replace />
             } />

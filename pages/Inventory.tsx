@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { storage, STORES } from '../services/storageService';
 import { InventoryItem, User } from '../types';
 import { ICONS } from '../constants';
+import PageHeader from '../components/ui/PageHeader';
 
 interface InventoryProps {
   user: User;
@@ -37,36 +38,39 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white">Inventory Management</h2>
-          <p className="text-slate-500 dark:text-slate-400">Track and manage organizational stock items.</p>
-        </div>
-        <button
-          onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-lg hover:shadow-blue-500/30 active:scale-95 whitespace-nowrap"
-        >
-          <ICONS.Plus className="w-5 h-5" />
-          Add New Item
-        </button>
-      </div>
+    <div className="app-page">
+      <PageHeader
+        title="Inventory Management"
+        subtitle="Track and manage organizational stock items."
+        actions={
+          <button
+            onClick={() => {
+              setEditingItem(null);
+              setIsModalOpen(true);
+            }}
+            className="civic-button-primary whitespace-nowrap"
+          >
+            <ICONS.Plus className="w-5 h-5" />
+            Add New Item
+          </button>
+        }
+      />
 
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center gap-3">
+      <div className="surface-card overflow-hidden p-0">
+        <div className="flex items-center gap-3 border-b border-civic-border bg-slate-50 px-4 py-3 dark:bg-slate-800/70">
           <ICONS.Search className="w-5 h-5 text-slate-400" />
           <input
             type="text"
             placeholder="Search items by name, category, or serial number..."
-            className="bg-transparent border-none focus:ring-0 text-sm w-full dark:text-white placeholder-slate-400"
+            className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="text-xs uppercase tracking-wider font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+          <table className="table-shell text-left">
+            <thead className="table-head text-xs uppercase tracking-wider">
               <tr>
                 <th className="px-6 py-4">Item Details</th>
                 <th className="px-6 py-4">Category</th>
@@ -77,36 +81,36 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            <tbody className="divide-y divide-slate-200">
               {filteredItems.map(item => (
-                <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                <tr key={item.id} className="table-row transition-colors">
                   <td className="px-6 py-4">
-                    <div className="font-semibold dark:text-white">{item.name}</div>
+                    <div className="font-semibold text-civic-text dark:text-white">{item.name}</div>
                     <div className="text-xs text-slate-400">SN: {item.serialNumber}</div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-medium border border-slate-200 dark:border-slate-700">
+                    <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium border border-slate-200">
                       {item.category}
                     </span>
                   </td>
-                  <td className="px-6 py-4 font-medium dark:text-slate-300">{item.quantity}</td>
-                  <td className="px-6 py-4 text-slate-500 dark:text-slate-400">${item.price.toFixed(2)}</td>
-                  <td className="px-6 py-4 font-bold text-blue-600 dark:text-blue-400">${(item.price * item.quantity).toFixed(2)}</td>
+                  <td className="px-6 py-4 font-medium text-civic-text dark:text-slate-300">{item.quantity}</td>
+                  <td className="px-6 py-4 text-slate-500">${item.price.toFixed(2)}</td>
+                  <td className="px-6 py-4 font-semibold text-civic-primary">${(item.price * item.quantity).toFixed(2)}</td>
                   <td className="px-6 py-4">
                     {item.quantity <= item.lowStockThreshold ? (
-                      <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 text-xs font-bold uppercase tracking-tight">
+                      <span className="inline-flex items-center gap-1 text-red-600 text-xs font-bold uppercase tracking-tight">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
                         Low Stock
                       </span>
                     ) : (
-                      <span className="text-green-600 dark:text-green-400 text-xs font-bold uppercase tracking-tight">In Stock</span>
+                      <span className="text-green-600 text-xs font-bold uppercase tracking-tight">In Stock</span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => { setEditingItem(item); setIsModalOpen(true); }}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-civic-primary transition-colors"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                           <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -114,7 +118,7 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
                       </button>
                       <button
                         onClick={() => handleDelete(item.id, item.name)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                           <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />

@@ -1,23 +1,24 @@
 
 import React from 'react';
 import { User } from '../types';
+import PageHeader from '../components/ui/PageHeader';
 
 interface SettingsProps {
     user: User;
 }
 
 const Settings: React.FC<SettingsProps> = ({ user }) => (
-    <div className="space-y-6">
-        <div className="border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
-            <h2 className="text-2xl font-bold dark:text-white">System Settings</h2>
-            <p className="text-slate-500 dark:text-slate-400">Manage organizational configurations and security parameters.</p>
-        </div>
+    <div className="app-page">
+        <PageHeader
+            title="System Settings"
+            subtitle="Manage organizational configurations and security parameters."
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-lg font-bold dark:text-white mb-6 flex items-center gap-2">
-                        <span className="w-1 h-6 bg-blue-600 rounded-full"></span>
+                <div className="surface-card">
+                    <h3 className="text-lg font-semibold text-civic-text dark:text-white mb-6 flex items-center gap-2">
+                        <span className="h-6 w-1 rounded-full bg-civic-primary"></span>
                         Profile Settings
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -32,9 +33,9 @@ const Settings: React.FC<SettingsProps> = ({ user }) => (
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-lg font-bold dark:text-white mb-6 flex items-center gap-2">
-                        <span className="w-1 h-6 bg-blue-600 rounded-full"></span>
+                <div className="surface-card">
+                    <h3 className="text-lg font-semibold text-civic-text dark:text-white mb-6 flex items-center gap-2">
+                        <span className="h-6 w-1 rounded-full bg-civic-primary"></span>
                         Cloud Configuration
                     </h3>
                     <div className="space-y-6">
@@ -47,7 +48,7 @@ const Settings: React.FC<SettingsProps> = ({ user }) => (
                             <input id="timeout" type="number" defaultValue={60} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" />
                         </div>
                         <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
-                            <button className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all opacity-50 cursor-not-allowed active:scale-[0.98]">
+                            <button className="civic-button-primary cursor-not-allowed opacity-50">
                                 Save System Configurations
                             </button>
                             <p className="text-[10px] text-slate-400 mt-3 italic flex items-center gap-2">
@@ -60,8 +61,8 @@ const Settings: React.FC<SettingsProps> = ({ user }) => (
             </div>
 
             <div className="space-y-6">
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h4 className="text-sm font-bold dark:text-white mb-4">System Information</h4>
+                <div className="surface-card">
+                    <h4 className="text-sm font-semibold text-civic-text dark:text-white mb-4">System Information</h4>
                     <div className="space-y-3">
                         <div className="flex justify-between text-xs">
                             <span className="text-slate-500">Version</span>

@@ -3,6 +3,7 @@ import { storage, STORES } from '../services/storageService';
 import { ICONS } from '../constants';
 import { TableSkeleton } from '../components/Skeleton';
 import { useToast } from '../components/ToastProvider';
+import PageHeader from '../components/ui/PageHeader';
 
 const AuditTrail: React.FC = () => {
     const [logs, setLogs] = useState<any[]>([]);
@@ -33,19 +34,19 @@ const AuditTrail: React.FC = () => {
     );
 
     return (
-        <div className="space-y-6">
-            <div className="border-b border-slate-200 dark:border-slate-800 pb-4">
-                <h2 className="text-2xl font-bold dark:text-white">Activity History</h2>
-                <p className="text-slate-500 dark:text-slate-400">Complete record of system actions and data changes.</p>
-            </div>
+        <div className="app-page">
+            <PageHeader
+                title="Activity History"
+                subtitle="Complete record of system actions and data changes."
+            />
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center gap-3">
+            <div className="surface-card overflow-hidden p-0">
+                <div className="flex items-center gap-3 border-b border-civic-border bg-slate-50 px-4 py-3 dark:bg-slate-800/70">
                     <ICONS.Search className="w-5 h-5 text-slate-400" />
                     <input
                         type="text"
                         placeholder="Filter logs by username, action, or details..."
-                        className="bg-transparent border-none focus:ring-0 text-sm w-full dark:text-white placeholder-slate-400"
+                        className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white"
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                     />
@@ -55,8 +56,8 @@ const AuditTrail: React.FC = () => {
                     {loading ? (
                         <TableSkeleton rows={10} cols={4} />
                     ) : (
-                        <table className="w-full text-left">
-                            <thead className="text-xs uppercase tracking-wider font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                        <table className="table-shell text-left">
+                            <thead className="table-head text-xs uppercase tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4">User</th>
                                     <th className="px-6 py-4">Action</th>
@@ -64,15 +65,15 @@ const AuditTrail: React.FC = () => {
                                     <th className="px-6 py-4">Timestamp</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                            <tbody className="divide-y divide-slate-200">
                                 {filteredLogs.map((log, i) => (
-                                    <tr key={log.id || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <tr key={log.id || i} className="table-row transition-colors">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold text-xs uppercase">
+                                                <div className="w-8 h-8 rounded-full bg-civic-primaryLight flex items-center justify-center text-civic-primary font-bold text-xs uppercase">
                                                     {log.username.substring(0, 2)}
                                                 </div>
-                                                <span className="font-semibold dark:text-white">{log.username}</span>
+                                                <span className="font-semibold text-civic-text dark:text-white">{log.username}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -83,7 +84,7 @@ const AuditTrail: React.FC = () => {
                                                 {log.action.replace('_', ' ')}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+                                        <td className="px-6 py-4 text-sm text-civic-muted dark:text-slate-400">
                                             {log.details}
                                         </td>
                                         <td className="px-6 py-4 text-xs text-slate-400">

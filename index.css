@@ -1,19 +1,94 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-    --transition-speed: 0.3s;
+    --civic-primary: #1e40af;
+    --civic-primary-light: #dbeafe;
+    --civic-primary-hover: #1d4ed8;
+    --civic-background: #f8fafc;
+    --civic-card: #ffffff;
+    --civic-border: #e2e8f0;
+    --civic-text-primary: #0f172a;
+    --civic-text-secondary: #64748b;
+    --civic-success: #16a34a;
+    --civic-warning: #f59e0b;
+    --civic-danger: #dc2626;
+    --civic-info: #0284c7;
+    --transition-speed: 0.2s;
 }
 
-body {
-    margin: 0;
-    padding: 0;
-    overflow-x: hidden;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    -webkit-font-smoothing: antialiased;
+.dark {
+    --civic-background: #0f172a;
+    --civic-card: #111827;
+    --civic-border: #1f2937;
+    --civic-text-primary: #e2e8f0;
+    --civic-text-secondary: #94a3b8;
+}
+
+@layer base {
+    body {
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        background: var(--civic-background);
+        color: var(--civic-text-primary);
+    }
+}
+
+@layer components {
+    .app-page {
+        @apply space-y-6;
+    }
+
+    .page-title {
+        @apply text-2xl font-semibold text-civic-text;
+    }
+
+    .page-subtitle {
+        @apply mt-1 text-sm text-civic-muted;
+    }
+
+    .surface-card {
+        @apply rounded-xl border border-civic-border bg-civic-card p-6 shadow-civic-sm;
+    }
+
+    .surface-card-hover {
+        @apply transition-shadow duration-200 hover:shadow-civic-md;
+    }
+
+    .civic-button-primary {
+        @apply inline-flex items-center justify-center gap-2 rounded-xl bg-civic-primary px-4 py-2.5 text-sm font-semibold text-white shadow-civic-sm transition-all duration-200 hover:bg-civic-primaryHover active:scale-[0.99];
+    }
+
+    .civic-button-secondary {
+        @apply inline-flex items-center justify-center gap-2 rounded-xl border border-civic-border bg-civic-card px-4 py-2.5 text-sm font-semibold text-civic-text transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-800;
+    }
+
+    .table-shell {
+        @apply w-full text-sm;
+    }
+
+    .table-head {
+        @apply bg-slate-100 text-slate-600;
+    }
+
+    .table-row {
+        @apply border-b border-slate-200 odd:bg-white even:bg-slate-50/60 hover:bg-slate-50;
+    }
+
+    .focus-ring {
+        @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-civic-primary focus-visible:ring-offset-2 focus-visible:ring-offset-civic-bg;
+    }
 }
 
 .transition-colors {
-    transition: background-color var(--transition-speed), border-color var(--transition-speed), color var(--transition-speed);
+    transition:
+        background-color var(--transition-speed),
+        border-color var(--transition-speed),
+        color var(--transition-speed);
 }

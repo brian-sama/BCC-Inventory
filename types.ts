@@ -58,3 +58,47 @@ export interface SystemStats {
   totalAssets: number;
   lowStockCount: number;
 }
+
+export interface KpiMetric {
+  key: 'total_inventory' | 'low_stock' | 'out_of_stock' | 'assets_assigned' | 'operational';
+  label: string;
+  value: number;
+  description: string;
+  tone: 'blue' | 'amber' | 'red' | 'indigo' | 'green';
+}
+
+export interface DashboardFilterState {
+  startDate: string;
+  endDate: string;
+  department: string;
+}
+
+export type DashboardAlertSeverity = 'critical' | 'warning' | 'info';
+
+export interface DashboardAlert {
+  id: string;
+  severity: DashboardAlertSeverity;
+  title: string;
+  description: string;
+  source: string;
+  actionLabel: string;
+  actionHref: string;
+}
+
+export type TrackingMode = 'qr' | 'barcode' | 'rfid';
+
+export interface TrackingResult {
+  success: boolean;
+  mode: TrackingMode;
+  code?: string;
+  message: string;
+  timestamp: string;
+}
+
+export type RfidConnectionState = 'connected' | 'disconnected' | 'unavailable';
+
+export interface RfidStatus {
+  state: RfidConnectionState;
+  message: string;
+  lastChecked: string;
+}

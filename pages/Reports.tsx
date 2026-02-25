@@ -2,6 +2,7 @@
 import React from 'react';
 import { storage, STORES } from '../services/storageService';
 import { User } from '../types';
+import PageHeader from '../components/ui/PageHeader';
 
 interface ReportsProps {
     user: User;
@@ -42,11 +43,11 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
-                <h2 className="text-2xl font-bold dark:text-white">Reporting Center</h2>
-                <p className="text-slate-500 dark:text-slate-400">Generate and export system data for administrative review.</p>
-            </div>
+        <div className="app-page">
+            <PageHeader
+                title="Reporting Center"
+                subtitle="Generate and export system data for administrative review."
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <ReportCard
                     title="Full Inventory Audit"
@@ -64,12 +65,12 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
 };
 
 const ReportCard: React.FC<{ title: string, desc: string, onExport: () => void }> = ({ title, desc, onExport }) => (
-    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between transition-all hover:shadow-md hover:border-blue-500/30">
+    <div className="surface-card surface-card-hover flex flex-col justify-between">
         <div>
-            <h3 className="text-lg font-bold dark:text-white mb-2">{title}</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">{desc}</p>
+            <h3 className="text-lg font-semibold text-civic-text dark:text-white mb-2">{title}</h3>
+            <p className="text-sm text-civic-muted dark:text-slate-400 mb-6">{desc}</p>
         </div>
-        <button onClick={onExport} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-blue-500/20 active:scale-[0.98]">
+        <button onClick={onExport} className="civic-button-primary w-full">
             Download CSV Report
         </button>
     </div>

@@ -3,6 +3,7 @@ import { storage, STORES } from '../services/storageService';
 import { Asset, User } from '../types';
 import { ICONS } from '../constants';
 import Papa from 'papaparse';
+import PageHeader from '../components/ui/PageHeader';
 
 interface AssetsProps {
   user: User;
@@ -37,7 +38,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
       try {
         // Call our internal proxy which talks to the external repairs system
         const response = await fetch(`/api/assets/repair-status/${asset.serialNumber}`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('sims_token')}` }
+          credentials: 'include',
         });
         const result = await response.json();
 
@@ -79,43 +80,45 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold dark:text-white">Asset Registry</h2>
-          <p className="text-slate-500 dark:text-slate-400">Track company hardware assigned to staff members.</p>
-        </div>
-        <button
-          onClick={() => { setEditingAsset(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-sm"
-        >
-          <ICONS.Plus className="w-5 h-5" />
-          Register New Asset
-        </button>
-        <button
-          onClick={() => setIsImportModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl font-semibold transition-colors shadow-sm"
-        >
-          <ICONS.Upload className="w-5 h-5" />
-          Import Assets (CSV)
-        </button>
-      </div>
+    <div className="app-page">
+      <PageHeader
+        title="Asset Registry"
+        subtitle="Track company hardware assigned to staff members."
+        actions={
+          <>
+            <button
+              onClick={() => {
+                setEditingAsset(null);
+                setIsModalOpen(true);
+              }}
+              className="civic-button-primary"
+            >
+              <ICONS.Plus className="w-5 h-5" />
+              Register New Asset
+            </button>
+            <button onClick={() => setIsImportModalOpen(true)} className="civic-button-secondary">
+              <ICONS.Upload className="w-5 h-5" />
+              Import Assets (CSV)
+            </button>
+          </>
+        }
+      />
 
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center gap-3">
+      <div className="surface-card overflow-hidden p-0">
+        <div className="flex items-center gap-3 border-b border-civic-border bg-slate-50 px-4 py-3 dark:bg-slate-800/70">
           <ICONS.Search className="w-5 h-5 text-slate-400" />
           <input
             type="text"
             placeholder="Search by employee, asset type, SR number, or department..."
-            className="bg-transparent border-none focus:ring-0 text-sm w-full dark:text-white placeholder-slate-400"
+            className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="text-xs uppercase tracking-wider font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+          <table className="table-shell text-left">
+            <thead className="table-head text-xs uppercase tracking-wider">
               <tr>
                 <th className="px-6 py-4">Employee & Position</th>
                 <th className="px-6 py-4">Asset Info</th>
@@ -125,22 +128,22 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            <tbody className="divide-y divide-slate-200">
               {filteredAssets.map(asset => (
-                <tr key={asset.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                <tr key={asset.id} className="table-row transition-colors">
                   <td className="px-6 py-4">
-                    <div className="font-semibold dark:text-white">{asset.employeeName}</div>
+                    <div className="font-semibold text-civic-text dark:text-white">{asset.employeeName}</div>
                     <div className="text-xs text-slate-400">{asset.position}</div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="font-medium dark:text-slate-300">{asset.type}</div>
+                    <div className="font-medium text-civic-text dark:text-slate-300">{asset.type}</div>
                     <div className="text-[10px] text-slate-400 uppercase tracking-tighter flex flex-col">
                       <span>SR: {asset.srNumber}</span>
                       {asset.serialNumber && <span>SN: {asset.serialNumber}</span>}
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-sm dark:text-slate-400">{asset.department}</span>
+                    <span className="text-sm text-civic-muted dark:text-slate-400">{asset.department}</span>
                     <div className="text-[10px] text-slate-400 italic">{asset.section}</div>
                   </td>
                   <td className="px-6 py-4">
@@ -155,7 +158,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-xs dark:text-slate-400">
+                    <div className="text-xs text-civic-muted dark:text-slate-400">
                       {new Date(asset.warrantyExpiry) < new Date() ? (
                         <span className="text-red-500 font-bold">Expired</span>
                       ) : (
@@ -167,7 +170,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => { setEditingAsset(asset); setIsModalOpen(true); }}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-civic-primary transition-colors"
                         title="Edit Asset"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -176,7 +179,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                       </button>
                       <button
                         onClick={() => handleDelete(asset.id, asset.employeeName)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
                         title="Delete Asset"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
