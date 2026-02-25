@@ -10,7 +10,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const SESSION_COOKIE_NAME = 'sims_session_id';
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
-const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+const DEFAULT_ALLOWED_ORIGINS = [
+    'http://localhost:3000', 
+    'http://127.0.0.1:3000',
+    'https://bccinventory.netlify.app',
+    'https://bccinventory.netlify.app/'
+];
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_ORIGIN || DEFAULT_ALLOWED_ORIGINS.join(','))
     .split(',')
     .map(origin => origin.trim())
@@ -759,7 +764,14 @@ app.get('/api/activity-logs', authenticateSession, async (req, res) => {
     }
 });
 
-app.use((err, req, res, next) => { console.error(err); res.status(500).json({ success: false, error: 'Internal server error' }); });
+app.use((err, req, res, next) => { 
+    console.error('Unhandled Error:', err); 
+    res.status(500).json({ 
+        success: false, 
+        error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+        details: err.message
+    }); 
+});
 
 setInterval(() => {
     deactivateExpiredSessions().catch(error => console.error('Session cleanup failed:', error.message));
