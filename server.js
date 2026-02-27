@@ -12,7 +12,9 @@ const SESSION_COOKIE_NAME = 'sims_session_id';
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
 const DEFAULT_ALLOWED_ORIGINS = [
     'http://localhost:3000',
+    'http://localhost:3001',
     'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
     'https://bccinventory.netlify.app',
     'https://bccinventory.netlify.app/',
     'https://bccsims.netlify.app',
@@ -458,7 +460,12 @@ app.get('/api/assets', authenticateSession, async (req, res) => {
             extNumber: asset.ext_number,
             officeNumber: asset.office_number,
             position: asset.position,
-            section: asset.section
+            section: asset.section,
+            brand: asset.brand,
+            purchaseDate: asset.purchase_date,
+            disposalDate: asset.disposal_date,
+            departmentId: asset.department_id,
+            warrantyExpiry: asset.warranty_expiry
         }));
         res.json({ success: true, assets });
     } catch (error) {
@@ -533,16 +540,22 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
             }
         }
 
+        const purchaseDate = assetData.purchaseDate ? new Date(assetData.purchaseDate) : new Date();
+        const warrantyExpiry = new Date(purchaseDate);
+        warrantyExpiry.setFullYear(warrantyExpiry.getFullYear() + 1);
+        const disposalDate = new Date(purchaseDate);
+        disposalDate.setFullYear(disposalDate.getFullYear() + 3);
+
         const year = new Date().getFullYear();
         const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
         const generatedSR = assetData.srNumber || `BCC-SR-${year}-${suffix}`;
 
         const queryText = `
             INSERT INTO assets (
-                asset_name, employee_name, asset_code, sr_number, serial_number, department, 
+                asset_name, employee_name, asset_code, sr_number, serial_number, department, department_id,
                 location, condition_status, model, warranty_expiry, notes, 
-                ext_number, office_number, position, section
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                ext_number, office_number, position, section, brand, purchase_date, disposal_date
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             RETURNING id
         `;
         const result = await db.query(queryText, [
@@ -552,15 +565,19 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
             generatedSR,
             assetData.serialNumber || '',
             assetData.department || '',
+            assetData.departmentId || null,
             assetData.location || 'Office',
             (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
             assetData.model || '',
-            assetData.warrantyExpiry || null,
+            warrantyExpiry.toISOString().split('T')[0],
             assetData.notes || '',
             assetData.extNumber || '',
             assetData.officeNumber || '',
             assetData.position || '',
-            assetData.section || ''
+            assetData.section || '',
+            assetData.brand || '',
+            purchaseDate.toISOString().split('T')[0],
+            disposalDate.toISOString().split('T')[0]
         ]);
         const newAssetId = result.rows[0].id;
 
@@ -643,13 +660,19 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 app.put('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
+        const purchaseDate = assetData.purchaseDate ? new Date(assetData.purchaseDate) : new Date();
+        const warrantyExpiry = new Date(purchaseDate);
+        warrantyExpiry.setFullYear(warrantyExpiry.getFullYear() + 1);
+        const disposalDate = new Date(purchaseDate);
+        disposalDate.setFullYear(disposalDate.getFullYear() + 3);
+
         const queryText = `
             UPDATE assets SET 
                 asset_name = $1, employee_name = $2, asset_code = $3, sr_number = $4, 
-                serial_number = $5, department = $6, condition_status = $7, model = $8, 
-                warranty_expiry = $9, ext_number = $10, office_number = $11, 
-                position = $12, section = $13
-            WHERE id = $14
+                serial_number = $5, department = $6, department_id = $7, condition_status = $8, model = $9, 
+                warranty_expiry = $10, ext_number = $11, office_number = $12, 
+                position = $13, section = $14, brand = $15, purchase_date = $16, disposal_date = $17
+            WHERE id = $18
         `;
         await db.query(queryText, [
             assetData.type || 'Asset',
@@ -658,13 +681,17 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
             assetData.srNumber,
             assetData.serialNumber,
             assetData.department,
+            assetData.departmentId || null,
             (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
             assetData.model || '',
-            assetData.warrantyExpiry || null,
+            warrantyExpiry.toISOString().split('T')[0],
             assetData.extNumber,
             assetData.officeNumber,
             assetData.position,
             assetData.section,
+            assetData.brand || '',
+            purchaseDate.toISOString().split('T')[0],
+            disposalDate.toISOString().split('T')[0],
             assetData.id
         ]);
 
@@ -748,6 +775,15 @@ app.get('/api/categories', authenticateSession, async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM categories ORDER BY name');
         res.json({ success: true, categories: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/departments', authenticateSession, async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM departments ORDER BY name');
+        res.json({ success: true, departments: result.rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

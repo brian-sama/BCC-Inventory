@@ -27,6 +27,11 @@ export interface InventoryItem {
   createdAt: string;
 }
 
+export interface Department {
+  id: string;
+  name: string;
+}
+
 export interface Asset {
   id: string;
   employeeName: string;
@@ -36,6 +41,10 @@ export interface Asset {
   officeNumber: string;
   position: string;
   department: string;
+  departmentId?: string;
+  brand?: string;
+  purchaseDate?: string;
+  disposalDate?: string;
   section: string;
   warrantyExpiry: string;
   status: 'Active' | 'Under Repair' | 'Disposed';

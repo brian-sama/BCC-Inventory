@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { storage, STORES } from '../services/storageService';
-import { Asset, User } from '../types';
+import { Asset, User, Department } from '../types';
 import { ICONS } from '../constants';
 import Papa from 'papaparse';
+import { format, addYears } from 'date-fns';
 import PageHeader from '../components/ui/PageHeader';
 
 interface AssetsProps {
@@ -11,6 +12,7 @@ interface AssetsProps {
 
 const Assets: React.FC<AssetsProps> = ({ user }) => {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -19,7 +21,20 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
 
   useEffect(() => {
     loadAssets();
+    loadDepartments();
   }, []);
+
+  const loadDepartments = async () => {
+    try {
+      const response = await fetch('/api/departments', { credentials: 'include' });
+      const data = await response.json();
+      if (data.success) {
+        setDepartments(data.departments);
+      }
+    } catch (e) {
+      console.warn('Failed to load departments');
+    }
+  };
 
   const loadAssets = async () => {
     const data = await storage.getAll<Asset>(STORES.ASSETS);
@@ -124,7 +139,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                 <th className="px-6 py-4">Asset Info</th>
                 <th className="px-6 py-4">Department</th>
                 <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Warranty</th>
+                <th className="px-6 py-4">Lifecycle Dates</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -136,7 +151,9 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                     <div className="text-xs text-slate-400">{asset.position}</div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="font-medium text-civic-text dark:text-slate-300">{asset.type}</div>
+                    <div className="font-medium text-civic-text dark:text-slate-300">
+                      {asset.brand ? `${asset.brand} ` : ''}{asset.type}
+                    </div>
                     <div className="text-[10px] text-slate-400 uppercase tracking-tighter flex flex-col">
                       <span>SR: {asset.srNumber}</span>
                       {asset.serialNumber && <span>SN: {asset.serialNumber}</span>}
@@ -158,12 +175,16 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-xs text-civic-muted dark:text-slate-400">
-                      {new Date(asset.warrantyExpiry) < new Date() ? (
-                        <span className="text-red-500 font-bold">Expired</span>
-                      ) : (
-                        <span>Exp: {new Date(asset.warrantyExpiry).toLocaleDateString()}</span>
+                    <div className="flex flex-col gap-1 text-xs text-civic-muted dark:text-slate-400">
+                      {asset.purchaseDate && <span>Purchased: {format(new Date(asset.purchaseDate), 'dd/MM/yyyy')}</span>}
+                      {asset.warrantyExpiry && (
+                        new Date(asset.warrantyExpiry) < new Date() ? (
+                          <span className="text-red-500 font-bold">Wty: Expired</span>
+                        ) : (
+                          <span>Wty Exp: {format(new Date(asset.warrantyExpiry), 'dd/MM/yyyy')}</span>
+                        )
                       )}
+                      {asset.disposalDate && <span>Dispose: {format(new Date(asset.disposalDate), 'dd/MM/yyyy')}</span>}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
@@ -203,6 +224,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
       {isModalOpen && (
         <AssetModal
           asset={editingAsset}
+          departments={departments}
           user={user}
           onClose={() => setIsModalOpen(false)}
           onSave={() => { loadAssets(); setIsModalOpen(false); }}
@@ -235,18 +257,48 @@ const StatusBadge: React.FC<{ status: Asset['status'] }> = ({ status }) => {
 
 interface ModalProps {
   asset: Asset | null;
+  departments: Department[];
   user: User;
   onClose: () => void;
   onSave: () => void;
 }
 
-const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
+const AssetModal: React.FC<ModalProps> = ({ asset, departments, user, onClose, onSave }) => {
   const [formData, setFormData] = useState<Partial<Asset>>(
     asset || {
       employeeName: '', type: '', srNumber: '', serialNumber: '', extNumber: '', officeNumber: '',
-      position: '', department: '', section: '', warrantyExpiry: '', status: 'Active'
+      position: '', departmentId: '', department: '', section: '', warrantyExpiry: '', status: 'Active',
+      brand: '', purchaseDate: new Date().toISOString().split('T')[0], disposalDate: ''
     }
   );
+
+  useEffect(() => {
+    // Force re-initialization of values when editing, especially dates
+    if (asset) {
+      setFormData({
+        ...asset,
+        purchaseDate: asset.purchaseDate || new Date().toISOString().split('T')[0]
+      });
+    }
+  }, [asset]);
+
+  // Client-side auto-calculation for visual feedback (Backend does the actual DB saving)
+  useEffect(() => {
+    if (formData.purchaseDate) {
+      try {
+        const pd = new Date(formData.purchaseDate);
+        if (!isNaN(pd.getTime())) {
+          setFormData(prev => ({
+            ...prev,
+            warrantyExpiry: addYears(pd, 1).toISOString().split('T')[0],
+            disposalDate: addYears(pd, 3).toISOString().split('T')[0]
+          }));
+        }
+      } catch (e) {
+        // invalid date
+      }
+    }
+  }, [formData.purchaseDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,7 +351,27 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
               </div>
               <div>
                 <label htmlFor="department" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Department</label>
-                <input id="department" required type="text" title="Enter Department" placeholder="e.g. Finance" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} />
+                <select
+                  id="department"
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                  value={formData.departmentId || ''}
+                  onChange={(e) => {
+                    const selectedDept = departments.find(d => d.id === e.target.value);
+                    setFormData({
+                      ...formData,
+                      departmentId: e.target.value,
+                      department: selectedDept ? selectedDept.name : ''
+                    });
+                  }}
+                >
+                  <option value="">Select Department</option>
+                  {departments.map(dep => (
+                    <option key={dep.id} value={dep.id}>{dep.name}</option>
+                  ))}
+                  {/* Fallback for legacy data */}
+                  {formData.department && !formData.departmentId && <option value="" disabled>Current: {formData.department}</option>}
+                </select>
               </div>
               <div>
                 <label htmlFor="section" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Section</label>
@@ -328,6 +400,10 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
                   <option value="Mobile Phone">Mobile Phone</option>
                 </select>
               </div>
+              <div>
+                <label htmlFor="brand" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Brand / Make</label>
+                <input id="brand" type="text" placeholder="e.g. HP, Dell, Apple" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.brand || ''} onChange={(e) => setFormData({ ...formData, brand: e.target.value })} />
+              </div>
               <div className="col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 mt-4 md:mt-0 pt-4 md:pt-0">
                 <label htmlFor="serialNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Manufacturer Serial No.</label>
                 <input id="serialNumber" required type="text" title="Enter Serial Number" placeholder="e.g. 5CD20..." className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
@@ -347,8 +423,16 @@ const AssetModal: React.FC<ModalProps> = ({ asset, user, onClose, onSave }) => {
                 />
               </div>
               <div className="col-span-2 md:col-span-1">
-                <label htmlFor="warrantyExpiry" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry</label>
-                <input id="warrantyExpiry" required type="date" title="Select Warranty Expiry Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.warrantyExpiry} onChange={(e) => setFormData({ ...formData, warrantyExpiry: e.target.value })} />
+                <label htmlFor="purchaseDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Date of Purchase</label>
+                <input id="purchaseDate" required type="date" title="Select Purchase Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.purchaseDate || ''} onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })} />
+              </div>
+              <div className="col-span-2 md:col-span-1">
+                <label htmlFor="warrantyExpiry" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry (Auto)</label>
+                <input id="warrantyExpiry" readOnly type="date" className="w-full bg-gray-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm outline-none dark:text-slate-400 cursor-not-allowed" value={formData.warrantyExpiry || ''} />
+              </div>
+              <div className="col-span-2 md:col-span-1">
+                <label htmlFor="disposalDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Disposal Date (Auto)</label>
+                <input id="disposalDate" readOnly type="date" className="w-full bg-gray-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm outline-none dark:text-slate-400 cursor-not-allowed" value={formData.disposalDate || ''} />
               </div>
               <div>
                 <label htmlFor="currentStatus" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Current Status</label>
