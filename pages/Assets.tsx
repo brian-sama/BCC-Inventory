@@ -406,7 +406,7 @@ const AssetModal: React.FC<ModalProps> = ({ asset, departments, user, onClose, o
               </div>
               <div className="col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 mt-4 md:mt-0 pt-4 md:pt-0">
                 <label htmlFor="serialNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Manufacturer Serial No.</label>
-                <input id="serialNumber" required type="text" title="Enter Serial Number" placeholder="e.g. 5CD20..." className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
+                <input id="serialNumber" type="text" title="Enter Serial Number" placeholder="e.g. 5CD20..." className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
               </div>
               <div className="col-span-2 md:col-span-1">
                 <label htmlFor="srNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">SR Number (Internal)</label>
@@ -424,7 +424,7 @@ const AssetModal: React.FC<ModalProps> = ({ asset, departments, user, onClose, o
               </div>
               <div className="col-span-2 md:col-span-1">
                 <label htmlFor="purchaseDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Date of Purchase</label>
-                <input id="purchaseDate" required type="date" title="Select Purchase Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.purchaseDate || ''} onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })} />
+                <input id="purchaseDate" type="date" title="Select Purchase Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.purchaseDate || ''} onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })} />
               </div>
               <div className="col-span-2 md:col-span-1">
                 <label htmlFor="warrantyExpiry" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry (Auto)</label>
@@ -517,7 +517,10 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
               position: row.Position || row.position || '',
               department: row.Department || row.department || '',
               section: row.Section || row.section || '',
-              warrantyExpiry: row.WarrantyExpiry || row.warrantyExpiry || row['Warranty Expiry'] || new Date().toISOString().split('T')[0],
+              brand: row.Brand || row.brand || '',
+              purchaseDate: row.PurchaseDate || row.purchaseDate || row['Purchase Date'] || null,
+              warrantyExpiry: row.WarrantyExpiry || row.warrantyExpiry || row['Warranty Expiry'] || null,
+              disposalDate: row.DisposalDate || row.disposalDate || row['Disposal Date'] || null,
               status: (row.Status || row.status || 'Active') as any,
               createdAt: new Date().toISOString()
             };
@@ -574,7 +577,8 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
           <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 rounded-xl">
             <h4 className="text-sm font-bold text-blue-700 dark:text-blue-400 mb-1">CSV Template Guide</h4>
             <p className="text-xs text-blue-600 dark:text-blue-400/80 leading-relaxed">
-              Ensure your CSV has these headers: <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Employee Name</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Serial Number</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Asset Type</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Department</code>.
+              Required headers: <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Employee Name</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Serial Number</code>.
+              Optional: <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Asset Type</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Department</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Purchase Date</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Warranty Expiry</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Disposal Date</code>.
             </p>
             <p className="text-[10px] text-blue-500 mt-2 font-medium">Internal SR numbers will be automatically assigned upon arrival.</p>
           </div>

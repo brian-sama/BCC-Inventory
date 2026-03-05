@@ -144,7 +144,10 @@ class StorageService {
         position: asset.position || '',
         department: asset.department || '',
         section: asset.section || '',
-        warrantyExpiry: asset.warranty_expiry || new Date().toISOString(),
+        warrantyExpiry: asset.warranty_expiry,
+        purchaseDate: asset.purchase_date,
+        disposalDate: asset.disposal_date,
+        brand: asset.brand || '',
         status: this.mapStatus(asset.condition_status),
         createdAt: asset.created_at || new Date().toISOString(),
       }));
@@ -176,6 +179,9 @@ class StorageService {
         officeNumber: asset.officeNumber,
         section: asset.section,
         warrantyExpiry: asset.warrantyExpiry,
+        purchaseDate: asset.purchaseDate,
+        disposalDate: asset.disposalDate,
+        brand: asset.brand,
         notes: '',
       }),
     });

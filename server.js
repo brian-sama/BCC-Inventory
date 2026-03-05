@@ -540,11 +540,28 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
             }
         }
 
-        const purchaseDate = assetData.purchaseDate ? new Date(assetData.purchaseDate) : new Date();
-        const warrantyExpiry = new Date(purchaseDate);
-        warrantyExpiry.setFullYear(warrantyExpiry.getFullYear() + 1);
-        const disposalDate = new Date(purchaseDate);
-        disposalDate.setFullYear(disposalDate.getFullYear() + 3);
+        let purchaseDateVal = null;
+        let warrantyExpiryVal = null;
+        let disposalDateVal = null;
+
+        if (assetData.purchaseDate) {
+            const pd = new Date(assetData.purchaseDate);
+            if (!isNaN(pd.getTime())) {
+                purchaseDateVal = pd.toISOString().split('T')[0];
+
+                // Auto-calculate if not explicitly provided
+                const wExp = new Date(pd);
+                wExp.setFullYear(wExp.getFullYear() + 1);
+                warrantyExpiryVal = assetData.warrantyExpiry || wExp.toISOString().split('T')[0];
+
+                const dDate = new Date(pd);
+                dDate.setFullYear(dDate.getFullYear() + 3);
+                disposalDateVal = assetData.disposalDate || dDate.toISOString().split('T')[0];
+            }
+        } else if (assetData.warrantyExpiry) {
+            // If only warranty is provided
+            warrantyExpiryVal = assetData.warrantyExpiry;
+        }
 
         const year = new Date().getFullYear();
         const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -569,15 +586,15 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
             assetData.location || 'Office',
             (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
             assetData.model || '',
-            warrantyExpiry.toISOString().split('T')[0],
+            warrantyExpiryVal,
             assetData.notes || '',
             assetData.extNumber || '',
             assetData.officeNumber || '',
             assetData.position || '',
             assetData.section || '',
             assetData.brand || '',
-            purchaseDate.toISOString().split('T')[0],
-            disposalDate.toISOString().split('T')[0]
+            purchaseDateVal,
+            disposalDateVal
         ]);
         const newAssetId = result.rows[0].id;
 
@@ -618,8 +635,8 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
             INSERT INTO assets (
                 asset_name, employee_name, asset_code, sr_number, serial_number, department, 
                 location, condition_status, model, warranty_expiry, notes, 
-                ext_number, office_number, position, section
-            ) VALUES ${assetsData.map((_, i) => `($${i * 15 + 1}, $${i * 15 + 2}, $${i * 15 + 3}, $${i * 15 + 4}, $${i * 15 + 5}, $${i * 15 + 6}, $${i * 15 + 7}, $${i * 15 + 8}, $${i * 15 + 9}, $${i * 15 + 10}, $${i * 15 + 11}, $${i * 15 + 12}, $${i * 15 + 13}, $${i * 15 + 14}, $${i * 15 + 15})`).join(', ')}
+                ext_number, office_number, position, section, brand, purchase_date, disposal_date
+            ) VALUES ${assetsData.map((_, i) => `($${i * 18 + 1}, $${i * 18 + 2}, $${i * 18 + 3}, $${i * 18 + 4}, $${i * 18 + 5}, $${i * 18 + 6}, $${i * 18 + 7}, $${i * 18 + 8}, $${i * 18 + 9}, $${i * 18 + 10}, $${i * 18 + 11}, $${i * 18 + 12}, $${i * 18 + 13}, $${i * 18 + 14}, $${i * 18 + 15}, $${i * 18 + 16}, $${i * 18 + 17}, $${i * 18 + 18})`).join(', ')}
             RETURNING id
         `;
 
@@ -640,7 +657,10 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
                 asset.extNumber || '',
                 asset.officeNumber || '',
                 asset.position || '',
-                asset.section || ''
+                asset.section || '',
+                asset.brand || '',
+                asset.purchaseDate || null,
+                asset.disposalDate || null
             );
         });
 
@@ -660,11 +680,27 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 app.put('/api/assets', authenticateSession, async (req, res) => {
     const assetData = req.body;
     try {
-        const purchaseDate = assetData.purchaseDate ? new Date(assetData.purchaseDate) : new Date();
-        const warrantyExpiry = new Date(purchaseDate);
-        warrantyExpiry.setFullYear(warrantyExpiry.getFullYear() + 1);
-        const disposalDate = new Date(purchaseDate);
-        disposalDate.setFullYear(disposalDate.getFullYear() + 3);
+        let purchaseDateVal = null;
+        let warrantyExpiryVal = null;
+        let disposalDateVal = null;
+
+        if (assetData.purchaseDate) {
+            const pd = new Date(assetData.purchaseDate);
+            if (!isNaN(pd.getTime())) {
+                purchaseDateVal = pd.toISOString().split('T')[0];
+
+                // Auto-calculate if not explicitly provided
+                const wExp = new Date(pd);
+                wExp.setFullYear(wExp.getFullYear() + 1);
+                warrantyExpiryVal = assetData.warrantyExpiry || wExp.toISOString().split('T')[0];
+
+                const dDate = new Date(pd);
+                dDate.setFullYear(dDate.getFullYear() + 3);
+                disposalDateVal = assetData.disposalDate || dDate.toISOString().split('T')[0];
+            }
+        } else if (assetData.warrantyExpiry) {
+            warrantyExpiryVal = assetData.warrantyExpiry;
+        }
 
         const queryText = `
             UPDATE assets SET 
@@ -684,14 +720,14 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
             assetData.departmentId || null,
             (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
             assetData.model || '',
-            warrantyExpiry.toISOString().split('T')[0],
+            warrantyExpiryVal,
             assetData.extNumber,
             assetData.officeNumber,
             assetData.position,
             assetData.section,
             assetData.brand || '',
-            purchaseDate.toISOString().split('T')[0],
-            disposalDate.toISOString().split('T')[0],
+            purchaseDateVal,
+            disposalDateVal,
             assetData.id
         ]);
 
