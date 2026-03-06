@@ -485,6 +485,16 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
+          const headers = (results.meta?.fields || [])
+            .map(field => (field || '').toString().trim())
+            .filter(Boolean);
+          const normalizedHeaders = new Set(
+            headers.map(header => header.toLowerCase().replace(/[\s_-]/g, ''))
+          );
+          if (!normalizedHeaders.has('employeename') || !normalizedHeaders.has('serialnumber')) {
+            throw new Error('Missing required CSV headers. Expected: Employee Name, Serial Number.');
+          }
+
           const rawData = results.data as any[];
 
           // 1. Fetch current assets to check for duplicates
@@ -499,17 +509,31 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
 
           // 2. Map and Filter CSV columns
           const assetsToImport: Partial<Asset>[] = rawData.map(row => {
+            const employeeName = (row.EmployeeName || row.employeeName || row['Employee Name'] || '').toString().trim();
             const serial = (row.SerialNumber || row.serialNumber || row['Serial Number'] || '').toString().trim();
             const normalizedSerial = serial.toLowerCase();
+            const statusRaw = (row.Status || row.status || 'Active').toString().trim().toLowerCase();
+            const normalizedStatus: Asset['status'] =
+              statusRaw === 'under repair' || statusRaw === 'repair' || statusRaw === 'maintenance'
+                ? 'Under Repair'
+                : statusRaw === 'disposed' || statusRaw === 'dispose'
+                  ? 'Disposed'
+                  : 'Active';
+
+            if (!employeeName || !serial) {
+              skippedCount++;
+              return null;
+            }
 
             // Check if duplicate
             if (normalizedSerial && existingSerials.has(normalizedSerial)) {
               skippedCount++;
               return null;
             }
+            existingSerials.add(normalizedSerial);
 
             return {
-              employeeName: row.EmployeeName || row.employeeName || row['Employee Name'] || '',
+              employeeName,
               type: row.AssetType || row.type || row['Asset Type'] || 'Other',
               serialNumber: serial,
               extNumber: row.ExtNumber || row.extNumber || row['Ext Number'] || '',
@@ -521,25 +545,23 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
               purchaseDate: row.PurchaseDate || row.purchaseDate || row['Purchase Date'] || null,
               warrantyExpiry: row.WarrantyExpiry || row.warrantyExpiry || row['Warranty Expiry'] || null,
               disposalDate: row.DisposalDate || row.disposalDate || row['Disposal Date'] || null,
-              status: (row.Status || row.status || 'Active') as any,
+              status: normalizedStatus,
               createdAt: new Date().toISOString()
             };
-          }).filter(a => a !== null && a.employeeName) as Partial<Asset>[];
+          }).filter(a => a !== null) as Partial<Asset>[];
 
-          if (assetsToImport.length === 0 && skippedCount === 0) {
-            throw new Error('No valid asset data found in file. Ensure "Employee Name" column exists.');
+          if (assetsToImport.length === 0) {
+            throw new Error('No valid asset data found. Ensure required fields are present and serial numbers are unique.');
           }
 
           if (assetsToImport.length > 0) {
-            for (const asset of assetsToImport) {
-              await storage.save(STORES.ASSETS, asset);
-            }
+            await storage.bulkAddAssets(assetsToImport);
 
             await storage.logActivity(
               user.id,
               user.username,
               'IMPORT_ASSETS',
-              `Imported ${assetsToImport.length} assets, skipped ${skippedCount} duplicates.`
+              `Imported ${assetsToImport.length} assets, skipped ${skippedCount} rows.`
             );
           }
 

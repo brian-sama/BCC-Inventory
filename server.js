@@ -26,7 +26,7 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_ORIGIN
     .filter(Boolean);
 const memorySessions = new Map();
 let useMemorySessions = false;
-let hasAssetsDepartmentIdColumn = null;
+let assetsColumnsCache = null;
 
 app.set('trust proxy', 1);
 
@@ -267,7 +267,7 @@ async function initializeApp() {
         console.log('🔧 Checking Neon Database connection...');
         const result = await db.query('SELECT 1 as connected');
         if (result.rows.length === 0) throw new Error('Database ping failed');
-        await detectAssetsDepartmentIdColumn();
+        await getAssetsColumns();
         console.log('✅ Neon Database connected successfully');
     } catch (error) {
         console.error('❌ Neon Database connection failed:', error.message);
@@ -276,28 +276,45 @@ async function initializeApp() {
     }
 }
 
-async function detectAssetsDepartmentIdColumn() {
-    if (typeof hasAssetsDepartmentIdColumn === 'boolean') {
-        return hasAssetsDepartmentIdColumn;
+async function getAssetsColumns() {
+    if (assetsColumnsCache instanceof Set) {
+        return assetsColumnsCache;
     }
 
     try {
         const result = await db.query(`
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'assets'
-                  AND column_name = 'department_id'
-            ) AS "exists"
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'assets'
         `);
-        hasAssetsDepartmentIdColumn = Boolean(result.rows?.[0]?.exists);
+        assetsColumnsCache = new Set((result.rows || []).map(row => row.column_name));
     } catch (error) {
-        console.warn('Could not inspect assets.department_id column. Falling back to legacy assets schema.', error.message);
-        hasAssetsDepartmentIdColumn = false;
+        console.warn('Could not inspect assets columns. Falling back to default column compatibility set.', error.message);
+        assetsColumnsCache = new Set([
+            'asset_name',
+            'employee_name',
+            'asset_code',
+            'sr_number',
+            'serial_number',
+            'department',
+            'department_id',
+            'location',
+            'condition_status',
+            'model',
+            'warranty_expiry',
+            'notes',
+            'ext_number',
+            'office_number',
+            'position',
+            'section',
+            'brand',
+            'purchase_date',
+            'disposal_date'
+        ]);
     }
 
-    return hasAssetsDepartmentIdColumn;
+    return assetsColumnsCache;
 }
 
 // ===== ROUTES =====
@@ -593,49 +610,33 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
         const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
         const generatedSR = assetData.srNumber || `BCC-SR-${year}-${suffix}`;
 
-        const includeDepartmentId = await detectAssetsDepartmentIdColumn();
-        const insertColumns = [
-            'asset_name',
-            'employee_name',
-            'asset_code',
-            'sr_number',
-            'serial_number',
-            'department',
-            ...(includeDepartmentId ? ['department_id'] : []),
-            'location',
-            'condition_status',
-            'model',
-            'warranty_expiry',
-            'notes',
-            'ext_number',
-            'office_number',
-            'position',
-            'section',
-            'brand',
-            'purchase_date',
-            'disposal_date'
-        ];
-        const insertValues = [
-            assetData.type || 'Asset',
-            assetData.employeeName,
-            generatedSR,
-            generatedSR,
-            assetData.serialNumber || '',
-            assetData.department || '',
-            ...(includeDepartmentId ? [assetData.departmentId || null] : []),
-            assetData.location || 'Office',
-            (assetData.status || assetData.assetStatus || 'active').toLowerCase(),
-            assetData.model || '',
-            warrantyExpiryVal,
-            assetData.notes || '',
-            assetData.extNumber || '',
-            assetData.officeNumber || '',
-            assetData.position || '',
-            assetData.section || '',
-            assetData.brand || '',
-            purchaseDateVal,
-            disposalDateVal
-        ];
+        const assetsColumns = await getAssetsColumns();
+        const insertEntries = [
+            ['asset_name', assetData.type || 'Asset'],
+            ['employee_name', assetData.employeeName],
+            ['asset_code', generatedSR],
+            ['sr_number', generatedSR],
+            ['serial_number', assetData.serialNumber || ''],
+            ['department', assetData.department || ''],
+            ['department_id', assetData.departmentId || null],
+            ['location', assetData.location || 'Office'],
+            ['condition_status', (assetData.status || assetData.assetStatus || 'active').toLowerCase()],
+            ['model', assetData.model || ''],
+            ['warranty_expiry', warrantyExpiryVal],
+            ['notes', assetData.notes || ''],
+            ['ext_number', assetData.extNumber || ''],
+            ['office_number', assetData.officeNumber || ''],
+            ['position', assetData.position || ''],
+            ['section', assetData.section || ''],
+            ['brand', assetData.brand || ''],
+            ['purchase_date', purchaseDateVal],
+            ['disposal_date', disposalDateVal]
+        ].filter(([column]) => assetsColumns.has(column));
+        if (insertEntries.length === 0) {
+            throw new Error('No compatible columns found for assets insert.');
+        }
+        const insertColumns = insertEntries.map(([column]) => column);
+        const insertValues = insertEntries.map(([, value]) => value);
         const placeholders = insertValues.map((_, i) => `$${i + 1}`).join(', ');
         const queryText = `
             INSERT INTO assets (${insertColumns.join(', ')})
@@ -678,37 +679,85 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
     }
 
     try {
+        const assetsColumns = await getAssetsColumns();
+        const candidateColumns = [
+            'asset_name',
+            'employee_name',
+            'asset_code',
+            'sr_number',
+            'serial_number',
+            'department',
+            'department_id',
+            'location',
+            'condition_status',
+            'model',
+            'warranty_expiry',
+            'notes',
+            'ext_number',
+            'office_number',
+            'position',
+            'section',
+            'brand',
+            'purchase_date',
+            'disposal_date'
+        ];
+        const insertColumns = candidateColumns.filter(column => assetsColumns.has(column));
+        if (insertColumns.length === 0) {
+            throw new Error('No compatible columns found for bulk assets insert.');
+        }
+
         const queryText = `
-            INSERT INTO assets (
-                asset_name, employee_name, asset_code, sr_number, serial_number, department, 
-                location, condition_status, model, warranty_expiry, notes, 
-                ext_number, office_number, position, section, brand, purchase_date, disposal_date
-            ) VALUES ${assetsData.map((_, i) => `($${i * 18 + 1}, $${i * 18 + 2}, $${i * 18 + 3}, $${i * 18 + 4}, $${i * 18 + 5}, $${i * 18 + 6}, $${i * 18 + 7}, $${i * 18 + 8}, $${i * 18 + 9}, $${i * 18 + 10}, $${i * 18 + 11}, $${i * 18 + 12}, $${i * 18 + 13}, $${i * 18 + 14}, $${i * 18 + 15}, $${i * 18 + 16}, $${i * 18 + 17}, $${i * 18 + 18})`).join(', ')}
+            INSERT INTO assets (${insertColumns.join(', ')})
+            VALUES ${assetsData.map((_, rowIndex) => `(${insertColumns.map((__, colIndex) => `$${rowIndex * insertColumns.length + colIndex + 1}`).join(', ')})`).join(', ')}
             RETURNING id
         `;
-
         const params = [];
         assetsData.forEach(asset => {
-            params.push(
-                asset.type || 'Asset',
-                asset.employeeName,
-                asset.srNumber || `ASSET-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                asset.srNumber,
-                asset.serialNumber,
-                asset.department || '',
-                asset.location || 'Office',
-                (asset.status || asset.assetStatus || 'active').toLowerCase(),
-                asset.model || '',
-                asset.warrantyExpiry || null,
-                asset.notes || '',
-                asset.extNumber || '',
-                asset.officeNumber || '',
-                asset.position || '',
-                asset.section || '',
-                asset.brand || '',
-                asset.purchaseDate || null,
-                asset.disposalDate || null
-            );
+            let purchaseDateVal = null;
+            let warrantyExpiryVal = null;
+            let disposalDateVal = null;
+
+            if (asset.purchaseDate) {
+                const pd = new Date(asset.purchaseDate);
+                if (!isNaN(pd.getTime())) {
+                    purchaseDateVal = pd.toISOString().split('T')[0];
+                    const wExp = new Date(pd);
+                    wExp.setFullYear(wExp.getFullYear() + 1);
+                    warrantyExpiryVal = asset.warrantyExpiry || wExp.toISOString().split('T')[0];
+                    const dDate = new Date(pd);
+                    dDate.setFullYear(dDate.getFullYear() + 3);
+                    disposalDateVal = asset.disposalDate || dDate.toISOString().split('T')[0];
+                }
+            } else if (asset.warrantyExpiry) {
+                warrantyExpiryVal = asset.warrantyExpiry;
+            }
+
+            const year = new Date().getFullYear();
+            const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+            const generatedSR = asset.srNumber || `BCC-SR-${year}-${suffix}`;
+            const rowValues = {
+                asset_name: asset.type || 'Asset',
+                employee_name: asset.employeeName,
+                asset_code: generatedSR,
+                sr_number: generatedSR,
+                serial_number: asset.serialNumber || '',
+                department: asset.department || '',
+                department_id: asset.departmentId || null,
+                location: asset.location || 'Office',
+                condition_status: (asset.status || asset.assetStatus || 'active').toLowerCase(),
+                model: asset.model || '',
+                warranty_expiry: warrantyExpiryVal,
+                notes: asset.notes || '',
+                ext_number: asset.extNumber || '',
+                office_number: asset.officeNumber || '',
+                position: asset.position || '',
+                section: asset.section || '',
+                brand: asset.brand || '',
+                purchase_date: purchaseDateVal,
+                disposal_date: disposalDateVal
+            };
+
+            insertColumns.forEach(column => params.push(rowValues[column]));
         });
 
         const result = await db.query(queryText, params);
@@ -749,7 +798,7 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
             warrantyExpiryVal = assetData.warrantyExpiry;
         }
 
-        const includeDepartmentId = await detectAssetsDepartmentIdColumn();
+        const assetsColumns = await getAssetsColumns();
         const updateEntries = [
             ['asset_name', assetData.type || 'Asset'],
             ['employee_name', assetData.employeeName],
@@ -757,7 +806,7 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
             ['sr_number', assetData.srNumber],
             ['serial_number', assetData.serialNumber],
             ['department', assetData.department],
-            ...(includeDepartmentId ? [['department_id', assetData.departmentId || null]] : []),
+            ['department_id', assetData.departmentId || null],
             ['condition_status', (assetData.status || assetData.assetStatus || 'active').toLowerCase()],
             ['model', assetData.model || ''],
             ['warranty_expiry', warrantyExpiryVal],
@@ -768,7 +817,10 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
             ['brand', assetData.brand || ''],
             ['purchase_date', purchaseDateVal],
             ['disposal_date', disposalDateVal]
-        ];
+        ].filter(([column]) => assetsColumns.has(column));
+        if (updateEntries.length === 0) {
+            throw new Error('No compatible columns found for assets update.');
+        }
         const setClause = updateEntries.map(([column], idx) => `${column} = $${idx + 1}`).join(', ');
         const queryText = `UPDATE assets SET ${setClause} WHERE id = $${updateEntries.length + 1}`;
         const params = updateEntries.map(([, value]) => value);
