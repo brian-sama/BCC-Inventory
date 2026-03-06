@@ -188,10 +188,14 @@ class StorageService {
   }
 
   async bulkAddAssets(assets: Partial<Asset>[]): Promise<void> {
-    await this.fetchApi('/assets/bulk', {
-      method: 'POST',
-      body: JSON.stringify(assets),
-    });
+    const chunkSize = 100;
+    for (let i = 0; i < assets.length; i += chunkSize) {
+      const chunk = assets.slice(i, i + chunkSize);
+      await this.fetchApi('/assets/bulk', {
+        method: 'POST',
+        body: JSON.stringify(chunk),
+      });
+    }
   }
 
   // General Actions
