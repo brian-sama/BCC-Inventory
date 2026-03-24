@@ -18,8 +18,11 @@ const AuditTrail: React.FC = () => {
     const loadLogs = async () => {
         try {
             setLoading(true);
-            const data = await storage.getAll<any>(STORES.ACTIVITY_LOGS);
-            setLogs(data.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+            const response = await fetch('/api/audit-logs', { credentials: 'include' });
+            const data = await response.json();
+            if (data.success) {
+                setLogs(data.logs);
+            }
         } catch (err) {
             showToast('Failed to load activity logs', 'error');
         } finally {
@@ -28,9 +31,9 @@ const AuditTrail: React.FC = () => {
     };
 
     const filteredLogs = logs.filter(log =>
-        log.username.toLowerCase().includes(filter.toLowerCase()) ||
-        log.action.toLowerCase().includes(filter.toLowerCase()) ||
-        log.details.toLowerCase().includes(filter.toLowerCase())
+        (log.username || '').toLowerCase().includes(filter.toLowerCase()) ||
+        (log.action || '').toLowerCase().includes(filter.toLowerCase()) ||
+        (log.details || '').toLowerCase().includes(filter.toLowerCase())
     );
 
     return (
@@ -70,18 +73,18 @@ const AuditTrail: React.FC = () => {
                                     <tr key={log.id || i} className="table-row transition-colors">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-civic-primaryLight flex items-center justify-center text-civic-primary font-bold text-xs uppercase">
-                                                    {log.username.substring(0, 2)}
+                                                 <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs uppercase">
+                                                    {(log.username || 'U').substring(0, 2)}
                                                 </div>
-                                                <span className="font-semibold text-civic-text dark:text-white">{log.username}</span>
+                                                <span className="font-semibold text-civic-text dark:text-white">{log.username || 'System'}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${log.action.includes('DELETE') ? 'bg-red-100 text-red-600' :
-                                                log.action.includes('ADD') ? 'bg-green-100 text-green-600' :
+                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${log.action?.includes('DELETE') ? 'bg-red-100 text-red-600' :
+                                                log.action?.includes('ADD') ? 'bg-green-100 text-green-600' :
                                                     'bg-blue-100 text-blue-600'
                                                 }`}>
-                                                {log.action.replace('_', ' ')}
+                                                {log.action?.replace('_', ' ') || 'Action'}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-civic-muted dark:text-slate-400">

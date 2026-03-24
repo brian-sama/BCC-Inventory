@@ -218,8 +218,8 @@ const Dashboard: React.FC = () => {
               title: `Warranty expired for ${asset.employeeName}`,
               description: `${asset.type} (${asset.serialNumber || 'N/A'}) expired on ${expiryDate.toLocaleDateString()}.`,
               source: 'Assets',
-              actionLabel: 'Open Assets',
-              actionHref: '/assets',
+              actionLabel: 'View Details',
+              actionHref: `/assets/${asset.id}`,
             });
           } else if (daysUntilExpiry <= 30) {
             list.push({
@@ -228,8 +228,36 @@ const Dashboard: React.FC = () => {
               title: `Warranty near expiry for ${asset.employeeName}`,
               description: `${asset.type} warranty expires in ${daysUntilExpiry} day(s).`,
               source: 'Assets',
-              actionLabel: 'Open Assets',
-              actionHref: '/assets',
+              actionLabel: 'View Details',
+              actionHref: `/assets/${asset.id}`,
+            });
+          }
+        }
+      }
+
+      if (asset.disposalDate) {
+        const dDate = new Date(asset.disposalDate);
+        if (!Number.isNaN(dDate.getTime())) {
+          const daysUntilDisposal = Math.floor((dDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntilDisposal < 0) {
+            list.push({
+              id: `d-exp-${asset.id}`,
+              severity: 'critical',
+              title: `Disposal due for ${asset.employeeName}`,
+              description: `${asset.type} reached disposal date on ${dDate.toLocaleDateString()}.`,
+              source: 'Assets',
+              actionLabel: 'View Details',
+              actionHref: `/assets/${asset.id}`,
+            });
+          } else if (daysUntilDisposal <= 60) {
+            list.push({
+              id: `d-warn-${asset.id}`,
+              severity: 'warning',
+              title: `Approaching disposal for ${asset.employeeName}`,
+              description: `Disposal scheduled in ${daysUntilDisposal} day(s).`,
+              source: 'Assets',
+              actionLabel: 'View Details',
+              actionHref: `/assets/${asset.id}`,
             });
           }
         }
@@ -242,8 +270,8 @@ const Dashboard: React.FC = () => {
           title: `${asset.employeeName} asset under repair`,
           description: `${asset.type} (${asset.serialNumber || 'N/A'}) currently flagged for repair.`,
           source: 'Assets',
-          actionLabel: 'Open Assets',
-          actionHref: '/assets',
+          actionLabel: 'View Details',
+          actionHref: `/assets/${asset.id}`,
         });
       }
     });
@@ -522,6 +550,26 @@ const Dashboard: React.FC = () => {
                 </table>
               </div>
             </SectionCard>
+
+            <section className="mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold dark:text-white">Strategic Analytics</h2>
+                <span className="text-xs bg-civic-primary/10 text-civic-primary px-2 py-1 rounded-full font-bold uppercase tracking-wider">Streamlit Powered</span>
+              </div>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm" style={{ height: '600px' }}>
+                <iframe 
+                  src="https://bulawayo-sims-analytics.streamlit.app/?embed=true" 
+                  width="100%" 
+                  height="100%" 
+                  frameBorder="0" 
+                  title="Asset Analytics Dashboard"
+                  className="w-full h-full"
+                ></iframe>
+              </div>
+              <p className="mt-3 text-xs text-center text-slate-400">
+                Note: This dashboard is hosted on Streamlit Cloud. If it does not appear, ensure you have deployed [analytics/app.py] and updated this URL.
+              </p>
+            </section>
           </div>
 
         </>

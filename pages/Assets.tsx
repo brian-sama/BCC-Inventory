@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { storage, STORES } from '../services/storageService';
 import { Asset, User, Department } from '../types';
 import { ICONS } from '../constants';
@@ -11,6 +12,7 @@ interface AssetsProps {
 }
 
 const Assets: React.FC<AssetsProps> = ({ user }) => {
+  const navigate = useNavigate();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [search, setSearch] = useState('');
@@ -145,7 +147,15 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredAssets.map(asset => (
-                <tr key={asset.id} className="table-row transition-colors">
+                <tr 
+                  key={asset.id} 
+                  className="table-row transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  onClick={(e) => {
+                    // Prevent navigation if clicking action buttons
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    navigate(`/assets/${asset.id}`);
+                  }}
+                >
                   <td className="px-6 py-4">
                     <div className="font-semibold text-civic-text dark:text-white">{asset.employeeName}</div>
                     <div className="text-xs text-slate-400">{asset.position}</div>

@@ -18,10 +18,24 @@ const UserManagement: React.FC = () => {
         id: '',
         name: ''
     });
+    const [departments, setDepartments] = useState<any[]>([]);
 
     useEffect(() => {
         loadUsers();
+        loadDepartments();
     }, []);
+
+    const loadDepartments = async () => {
+        try {
+            const response = await fetch('/api/departments', { credentials: 'include' });
+            const data = await response.json();
+            if (data.success) {
+                setDepartments(data.departments);
+            }
+        } catch (e) {
+            console.warn('Failed to load departments');
+        }
+    };
 
     const loadUsers = async () => {
         try {
@@ -76,7 +90,7 @@ const UserManagement: React.FC = () => {
                                 <tr>
                                     <th className="px-6 py-4">Full Name</th>
                                     <th className="px-6 py-4">Username</th>
-                                    <th className="px-6 py-4">Role</th>
+                                    <th className="px-6 py-4">Role / Department</th>
                                     <th className="px-6 py-4">Status</th>
                                     <th className="px-6 py-4 text-right">Actions</th>
                                 </tr>
@@ -87,12 +101,19 @@ const UserManagement: React.FC = () => {
                                         <td className="px-6 py-4 font-semibold text-civic-text dark:text-white">{u.fullName}</td>
                                         <td className="px-6 py-4 text-sm text-civic-muted dark:text-slate-400">{u.username}</td>
                                         <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${u.role.toLowerCase() === 'admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                                                u.role.toLowerCase() === 'head administrator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                    'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                                                }`}>
-                                                {u.role.replace('_', ' ')}
-                                            </span>
+                                            <div className="flex flex-col gap-1">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight w-fit ${u.role.toLowerCase() === 'admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
+                                                    u.role.toLowerCase() === 'head administrator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                        'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                                    }`}>
+                                                    {u.role.replace('_', ' ')}
+                                                </span>
+                                                {u.departmentName && (
+                                                    <span className="text-[10px] text-slate-400 font-medium italic">
+                                                        Dept: {u.departmentName}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className="inline-flex items-center gap-1.5 text-green-600 text-xs font-bold uppercase">
@@ -103,20 +124,18 @@ const UserManagement: React.FC = () => {
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex justify-end gap-2">
                                                 <button
+                                                    title="Edit User"
                                                     onClick={() => { setEditingUser(u); setIsModalOpen(true); }}
                                                     className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-                                                    </svg>
+                                                    <ICONS.Edit className="w-5 h-5" />
                                                 </button>
                                                 <button
+                                                    title="Delete User"
                                                     onClick={() => setDeleteConfirm({ isOpen: true, id: u.id, name: u.username })}
                                                     className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                                                    </svg>
+                                                    <ICONS.Trash className="w-5 h-5" />
                                                 </button>
                                             </div>
                                         </td>
@@ -131,6 +150,7 @@ const UserManagement: React.FC = () => {
             {isModalOpen && (
                 <UserModal
                     user={editingUser}
+                    departments={departments}
                     onClose={() => setIsModalOpen(false)}
                     onSave={() => { loadUsers(); setIsModalOpen(false); }}
                 />
@@ -149,9 +169,9 @@ const UserManagement: React.FC = () => {
     );
 };
 
-const UserModal: React.FC<{ user: User | null; onClose: () => void; onSave: () => void }> = ({ user, onClose, onSave }) => {
+const UserModal: React.FC<{ user: User | null; departments: any[]; onClose: () => void; onSave: () => void }> = ({ user, departments, onClose, onSave }) => {
     const [formData, setFormData] = useState<Partial<User>>(
-        user || { username: '', fullName: '', role: UserRole.STOCK_TAKER, password: '' }
+        user || { username: '', fullName: '', role: UserRole.STOCK_TAKER, password: '', departmentId: '' }
     );
     const { showToast } = useToast();
 
@@ -160,7 +180,7 @@ const UserModal: React.FC<{ user: User | null; onClose: () => void; onSave: () =
         try {
             const id = user?.id || crypto.randomUUID();
             const newUser = { ...formData, id } as User;
-            await storage.put(STORES.USERS, newUser); // Assuming put for users
+            await storage.put(STORES.USERS, newUser);
             showToast(`User ${newUser.username} ${user ? 'updated' : 'created'} successfully`, 'success');
             onSave();
         } catch (err) {
@@ -174,26 +194,48 @@ const UserModal: React.FC<{ user: User | null; onClose: () => void; onSave: () =
                 <h3 className="text-xl font-bold dark:text-white mb-6">{user ? 'Edit Council Account' : 'New Council Account'}</h3>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Full Name</label>
-                        <input required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
+                        <label htmlFor="fullName" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Full Name</label>
+                        <input id="fullName" required type="text" placeholder="First Last" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Username</label>
-                        <input required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
+                        <label htmlFor="username" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Username</label>
+                        <input id="username" required type="text" placeholder="username" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
                     </div>
                     {!user && (
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Initial Password</label>
-                            <input required type="password" placeholder="Min. 8 characters" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                            <label htmlFor="password" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Initial Password</label>
+                            <input id="password" required type="password" placeholder="Min. 8 characters" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
                         </div>
                     )}
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Access Level</label>
-                        <select className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}>
+                        <label htmlFor="role" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Access Level</label>
+                        <select id="role" title="Select Role" className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}>
                             <option value={UserRole.ADMIN}>Administrator</option>
                             <option value={UserRole.STOCK_TAKER}>Stock Taker</option>
                             <option value={UserRole.ASSET_ADDER}>Asset Adder</option>
                             <option value={UserRole.HEAD_ADMIN}>Head Administrator</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="department" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Department Assignment</label>
+                        <select 
+                            id="department"
+                            title="Select Department"
+                            className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm dark:text-white" 
+                            value={formData.departmentId || ''} 
+                            onChange={(e) => {
+                                const dept = departments.find(d => d.id === e.target.value);
+                                setFormData({ 
+                                    ...formData, 
+                                    departmentId: e.target.value,
+                                    departmentName: dept ? dept.name : ''
+                                });
+                            }}
+                        >
+                            <option value="">All Departments (Internal Access)</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
                         </select>
                     </div>
                     <div className="flex gap-3 pt-6">

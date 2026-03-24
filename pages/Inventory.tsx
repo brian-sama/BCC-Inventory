@@ -13,10 +13,24 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => {
     loadItems();
+    loadDepartments();
   }, []);
+
+  const loadDepartments = async () => {
+    try {
+      const response = await fetch('/api/departments', { credentials: 'include' });
+      const data = await response.json();
+      if (data.success) {
+        setDepartments(data.departments);
+      }
+    } catch (e) {
+      console.warn('Failed to load departments');
+    }
+  };
 
   const loadItems = async () => {
     const data = await storage.getAll<InventoryItem>(STORES.INVENTORY);
@@ -109,20 +123,20 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2">
                       <button
+                        title="Edit Item"
+                        aria-label="Edit Item"
                         onClick={() => { setEditingItem(item); setIsModalOpen(true); }}
                         className="p-1.5 text-slate-400 hover:text-civic-primary transition-colors"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-                        </svg>
+                        <ICONS.Edit className="w-5 h-5" />
                       </button>
                       <button
+                        title="Delete Item"
+                        aria-label="Delete Item"
                         onClick={() => handleDelete(item.id, item.name)}
                         className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                        </svg>
+                        <ICONS.Trash className="w-5 h-5" />
                       </button>
                     </div>
                   </td>
@@ -142,6 +156,7 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
         <InventoryModal
           item={editingItem}
           user={user}
+          departments={departments}
           onClose={() => setIsModalOpen(false)}
           onSave={() => { loadItems(); setIsModalOpen(false); }}
         />
@@ -153,13 +168,18 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
 interface ModalProps {
   item: InventoryItem | null;
   user: User;
+  departments: any[];
   onClose: () => void;
   onSave: () => void;
 }
 
-const InventoryModal: React.FC<ModalProps> = ({ item, user, onClose, onSave }) => {
-  const [formData, setFormData] = useState<Partial<InventoryItem>>(
-    item || { name: '', category: '', quantity: 0, price: 0, serialNumber: '', description: '', lowStockThreshold: 5 }
+const InventoryModal: React.FC<ModalProps> = ({ item, user, departments, onClose, onSave }) => {
+  const [formData, setFormData] = useState<any>(
+    item || { 
+      name: '', category: '', quantity: 0, price: 0, serialNumber: '', description: '', lowStockThreshold: 5,
+      voucherNumber: '', requisitionNumber: '', codeNumber: '', unit: '', deliveryDate: '',
+      departmentId: '', storeCommittee: ''
+    }
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -195,18 +215,22 @@ const InventoryModal: React.FC<ModalProps> = ({ item, user, onClose, onSave }) =
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Item Name</label>
+              <label htmlFor="itemName" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Item Name</label>
               <input
+                id="itemName"
                 required
                 type="text"
+                placeholder="Enter item name"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Category</label>
+              <label htmlFor="category" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Category</label>
               <select
+                id="category"
+                title="Select Category"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
@@ -220,44 +244,124 @@ const InventoryModal: React.FC<ModalProps> = ({ item, user, onClose, onSave }) =
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Serial Number</label>
+              <label htmlFor="serialNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Serial Number</label>
               <input
+                id="serialNumber"
                 type="text"
+                placeholder="Serial or Code"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.serialNumber}
                 onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Quantity</label>
+              <label htmlFor="quantity" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Quantity</label>
               <input
+                id="quantity"
                 required
                 type="number"
+                placeholder="0"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Unit Price ($)</label>
+              <label htmlFor="unitPrice" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Unit Price ($)</label>
               <input
+                id="unitPrice"
                 required
                 type="number"
                 step="0.01"
+                placeholder="0.00"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.price}
                 onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Low Stock Limit</label>
+              <label htmlFor="lowStock" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Low Stock Limit</label>
               <input
+                id="lowStock"
                 required
                 type="number"
+                placeholder="5"
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
                 value={formData.lowStockThreshold}
                 onChange={(e) => setFormData({ ...formData, lowStockThreshold: parseInt(e.target.value) || 0 })}
               />
+            </div>
+
+            <div className="col-span-2 border-t border-slate-100 dark:border-slate-800 pt-4 mt-2">
+              <h4 className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-4">Procurement Details</h4>
+            </div>
+
+            <div>
+              <label htmlFor="voucherNum" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Voucher Number</label>
+              <input
+                id="voucherNum"
+                type="text"
+                placeholder="V-000"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.voucherNumber}
+                onChange={(e) => setFormData({ ...formData, voucherNumber: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="reqNum" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Requisition No.</label>
+              <input
+                id="reqNum"
+                type="text"
+                placeholder="R-000"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.requisitionNumber}
+                onChange={(e) => setFormData({ ...formData, requisitionNumber: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="codeNum" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Code Number</label>
+              <input
+                id="codeNum"
+                type="text"
+                placeholder="C-000"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.codeNumber}
+                onChange={(e) => setFormData({ ...formData, codeNumber: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="unit" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Unit (e.g. Each, Box)</label>
+              <input
+                id="unit"
+                type="text"
+                placeholder="Each"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.unit}
+                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="deliveryDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Delivery Date</label>
+              <input
+                id="deliveryDate"
+                type="date"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.deliveryDate}
+                onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="department" className="block text-xs font-bold text-slate-500 uppercase mb-1.5 tracking-wider">Department</label>
+              <select
+                id="department"
+                title="Select Department"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={formData.departmentId}
+                onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
+              >
+                <option value="">Select Department</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
             </div>
           </div>
           <div className="flex gap-3 mt-8">

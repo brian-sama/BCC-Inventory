@@ -7,6 +7,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
 import Assets from './pages/Assets';
+import AssetDetails from './pages/AssetDetails';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import AuditTrail from './pages/AuditTrail';
@@ -74,6 +75,12 @@ const App: React.FC = () => {
             <Route path="/assets" element={
               user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.HEAD_ADMIN.toLowerCase(), UserRole.ASSET_ADDER.toLowerCase()].includes(user.role.toLowerCase())
                 ? <Assets user={user!} />
+                : <Navigate to="/" replace />
+            } />
+
+            <Route path="/assets/:id" element={
+              user?.role && [UserRole.ADMIN.toLowerCase(), UserRole.HEAD_ADMIN.toLowerCase(), UserRole.ASSET_ADDER.toLowerCase()].includes(user.role.toLowerCase())
+                ? <AssetDetails user={user!} />
                 : <Navigate to="/" replace />
             } />
 

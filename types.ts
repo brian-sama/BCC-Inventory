@@ -12,6 +12,8 @@ export interface User {
   fullName: string;
   password?: string;
   role: UserRole | string;
+  departmentId?: string;
+  departmentName?: string;
   lastLogin?: string;
 }
 

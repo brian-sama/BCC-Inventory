@@ -183,6 +183,20 @@ async function deactivateSession(sessionId) {
     await db.query('UPDATE user_sessions SET is_active = false WHERE session_token = $1', [sessionId]);
 }
 
+
+// Audit Log Helper
+async function logAction(userId, username, action, details) {
+    try {
+        await db.query(
+            'INSERT INTO audit_logs (user_id, action, details) VALUES ($1, $2, $3)',
+            [userId, action, details]
+        );
+        console.log(`Audit Log: ${username} - ${action}`);
+    } catch (err) {
+        console.error('Failed to log action:', err.message);
+    }
+}
+
 async function deactivateExpiredSessions() {
     if (useMemorySessions) {
         for (const [sessionId, session] of memorySessions.entries()) {
@@ -311,7 +325,9 @@ async function getAssetsColumns() {
             'section',
             'brand',
             'purchase_date',
-            'disposal_date'
+            'disposal_date',
+            'section_id',
+            'status'
         ]);
     }
 
@@ -462,10 +478,7 @@ app.post('/api/inventory', authenticateSession, async (req, res) => {
         ]);
         const newItemId = result.rows[0].id;
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
-            [req.user.userId, 'create', 'inventory', newItemId, `Added new inventory item: ${itemData.name}`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
 
         res.json({ success: true, itemId: newItemId, message: 'Item added successfully!' });
     } catch (error) {
@@ -647,10 +660,7 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
         const result = await db.query(queryText, insertValues);
         const newAssetId = result.rows[0].id;
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
-            [req.user.userId, 'create', 'assets', newAssetId, `Registered asset ${generatedSR} for: ${assetData.employeeName}`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
 
         res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: newAssetId });
     } catch (error) {
@@ -662,12 +672,67 @@ app.delete('/api/assets/:id', authenticateSession, async (req, res) => {
     try {
         await db.query('DELETE FROM assets WHERE id = $1', [req.params.id]);
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
-            [req.user.userId, 'delete', 'assets', req.params.id, `Deleted asset with ID: ${req.params.id}`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
 
         res.json({ success: true, message: 'Asset deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/assets/expired', authenticateSession, async (req, res) => {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const result = await db.query(
+            'SELECT * FROM assets WHERE disposal_date < $1 ORDER BY disposal_date ASC',
+            [today]
+        );
+        res.json({ success: true, assets: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/assets/:id', authenticateSession, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const assetResult = await db.query('SELECT * FROM assets WHERE id = $1', [id]);
+        if (assetResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Asset not found' });
+        }
+        const asset = assetResult.rows[0];
+
+        // Fetch voucher if it exists
+        let voucher = null;
+        if (asset.voucher_id) {
+            const voucherResult = await db.query('SELECT * FROM vouchers WHERE id = $1', [asset.voucher_id]);
+            voucher = voucherResult.rows[0] || null;
+            
+            if (voucher) {
+                const itemsResult = await db.query('SELECT * FROM voucher_items WHERE voucher_id = $1', [voucher.id]);
+                voucher.items = itemsResult.rows;
+                
+                const deliveriesResult = await db.query('SELECT * FROM deliveries WHERE voucher_id = $1', [voucher.id]);
+                voucher.deliveries = deliveriesResult.rows;
+            }
+        }
+
+        res.json({ success: true, asset, voucher });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/audit-logs', authenticateSession, async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT al.*, u.username, u.full_name as fullName
+            FROM audit_logs al
+            LEFT JOIN users u ON al.user_id = u.id
+            ORDER BY al.timestamp DESC
+            LIMIT 500
+        `);
+        res.json({ success: true, logs: result.rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -763,10 +828,7 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 
         const result = await db.query(queryText, params);
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, description) VALUES ($1, $2, $3, $4)',
-            [req.user.userId, 'bulk_create', 'assets', `Bulk imported ${result.rows.length} assets`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
 
         res.json({ success: true, message: `Successfully imported ${result.rows.length} assets`, count: result.rows.length });
     } catch (error) {
@@ -828,10 +890,7 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
         params.push(assetData.id);
         await db.query(queryText, params);
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
-            [req.user.userId, 'update', 'assets', assetData.id, `Updated asset: ${assetData.employeeName}`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
         res.json({ success: true, message: 'Asset updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -858,10 +917,7 @@ app.put('/api/inventory', authenticateSession, async (req, res) => {
             itemData.id
         ]);
 
-        await db.query(
-            'INSERT INTO activity_log (user_id, action, table_name, record_id, description) VALUES ($1, $2, $3, $4, $5)',
-            [req.user.userId, 'update', 'inventory', itemData.id, `Updated inventory item: ${itemData.name}`]
-        );
+        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
         res.json({ success: true, message: 'Item updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
