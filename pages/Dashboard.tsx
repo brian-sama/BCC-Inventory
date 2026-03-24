@@ -558,7 +558,7 @@ const Dashboard: React.FC = () => {
               </div>
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm" style={{ height: '600px' }}>
                 <iframe 
-                  src="https://bulawayo-sims-analytics.streamlit.app/?embed=true" 
+                  src="https://bcc-inventorygit-wy45nc9x6hlkvdvs8xqovp.streamlit.app/?embed=true" 
                   width="100%" 
                   height="100%" 
                   frameBorder="0" 
