@@ -31,6 +31,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     { name: 'Assets', icon: ICONS.Assets, path: '/assets', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.ASSET_ADDER] },
     { name: 'Reports', icon: ICONS.Reports, path: '/reports', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
     { name: 'Audit Trail', icon: ICONS.Reports, path: '/audit-trail', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
+    { name: 'Analytics', icon: ICONS.Dashboard, path: '/analytics', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
     { name: 'User Management', icon: ICONS.Assets, path: '/users', roles: [UserRole.HEAD_ADMIN] },
     { name: 'Settings', icon: ICONS.Settings, path: '/settings', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
   ];

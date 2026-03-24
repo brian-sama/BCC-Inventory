@@ -12,6 +12,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import AuditTrail from './pages/AuditTrail';
 import UserManagement from './pages/UserManagement';
+import Analytics from './pages/Analytics';
 import Login from './components/Login';
 import { ToastProvider } from './components/ToastProvider';
 
@@ -93,6 +94,12 @@ const App: React.FC = () => {
             <Route path="/audit-trail" element={
               user?.role?.toLowerCase() === UserRole.ADMIN.toLowerCase() || user?.role?.toLowerCase() === UserRole.HEAD_ADMIN.toLowerCase()
                 ? <AuditTrail />
+                : <Navigate to="/" replace />
+            } />
+
+            <Route path="/analytics" element={
+              user?.role?.toLowerCase() === UserRole.ADMIN.toLowerCase() || user?.role?.toLowerCase() === UserRole.HEAD_ADMIN.toLowerCase()
+                ? <Analytics />
                 : <Navigate to="/" replace />
             } />
 
