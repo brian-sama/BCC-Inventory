@@ -36,7 +36,7 @@ try:
         st.warning("No asset data found. Please ensure the assets table is populated.")
         st.stop()
 
-    today = datetime.now().date()
+    today = pd.Timestamp.now().normalize()
 
     # --- METRICS ---
     col1, col2, col3, col4 = st.columns(4)
@@ -46,7 +46,7 @@ try:
 
     with col2:
         if 'disposal_date' in assets_df.columns:
-            expired = assets_df[pd.to_datetime(assets_df['disposal_date'], errors='coerce').dt.date < today]
+            expired = assets_df[pd.to_datetime(assets_df['disposal_date'], errors='coerce') < today]
             st.metric("Expired Assets", len(expired), delta_color="inverse")
         else:
             st.metric("Expired Assets", "N/A")
@@ -55,8 +55,8 @@ try:
         if 'disposal_date' in assets_df.columns:
             next_30 = today + pd.Timedelta(days=30)
             upcoming = assets_df[
-                (pd.to_datetime(assets_df['disposal_date'], errors='coerce').dt.date >= today) &
-                (pd.to_datetime(assets_df['disposal_date'], errors='coerce').dt.date <= next_30)
+                (pd.to_datetime(assets_df['disposal_date'], errors='coerce') >= today) &
+                (pd.to_datetime(assets_df['disposal_date'], errors='coerce') <= next_30)
             ]
             st.metric("Upcoming Disposals (30d)", len(upcoming))
         else:
