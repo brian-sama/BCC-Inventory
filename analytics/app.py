@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client
+from sqlalchemy import create_engine, text
 import plotly.express as px
 from datetime import datetime
 
@@ -11,19 +11,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- SUPABASE CONNECTION ---
+# --- DATABASE CONNECTION ---
 @st.cache_resource
-def get_client():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+def get_engine():
+    db_url = st.secrets["DATABASE_URL"]
+    return create_engine(db_url)
 
 # --- DATA LOADING ---
 @st.cache_data(ttl=600)
 def load_table(table_name):
-    client = get_client()
-    response = client.table(table_name).select("*").execute()
-    return pd.DataFrame(response.data)
+    engine = get_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(text(f"SELECT * FROM {table_name}"), conn)
+    return df
 
 # --- DASHBOARD ---
 st.title("📊 Municipal Asset Intelligence Dashboard")
@@ -101,4 +101,4 @@ try:
 
 except Exception as e:
     st.error(f"Dashboard Error: {e}")
-    st.info("Make sure SUPABASE_URL and SUPABASE_KEY are set correctly in Streamlit Secrets.")
+    st.info("Make sure DATABASE_URL is set correctly in Streamlit Secrets.")
