@@ -20,6 +20,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [repairStatuses, setRepairStatuses] = useState<Record<string, string>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadAssets();
@@ -41,6 +42,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
   const loadAssets = async () => {
     const data = await storage.getAll<Asset>(STORES.ASSETS);
     setAssets(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    setSelectedIds(new Set());
 
     // Potentially load external repair statuses
     loadRepairStatuses(data);
@@ -89,6 +91,42 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (confirm(`Unregister ${count} asset${count !== 1 ? 's' : ''}? This cannot be undone.`)) {
+      try {
+        for (const id of selectedIds) {
+          await storage.delete(STORES.ASSETS, id);
+        }
+        await storage.logActivity(user.id, user.username, 'BULK_DELETE_ASSET', `Deleted ${count} assets`);
+        setSelectedIds(new Set());
+        loadAssets();
+      } catch (error) {
+        console.error('Bulk delete failed:', error);
+        alert('Failed to delete some assets. Please try again.');
+      }
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAssets.map(asset => asset.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
   const filteredAssets = assets.filter(a =>
     a.employeeName.toLowerCase().includes(search.toLowerCase()) ||
     a.type.toLowerCase().includes(search.toLowerCase()) ||
@@ -131,12 +169,30 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+            >
+              <ICONS.Trash className="w-4 h-4" />
+              Delete {selectedIds.size}
+            </button>
+          )}
         </div>
 
         <div className="overflow-x-auto">
           <table className="table-shell text-left">
             <thead className="table-head text-xs uppercase tracking-wider">
               <tr>
+                <th className="px-6 py-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size > 0 && selectedIds.size === filteredAssets.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    title={selectedIds.size === filteredAssets.length ? "Deselect all assets" : "Select all assets"}
+                  />
+                </th>
                 <th className="px-6 py-4">Employee & Position</th>
                 <th className="px-6 py-4">Asset Info</th>
                 <th className="px-6 py-4">Department</th>
@@ -149,13 +205,21 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
               {filteredAssets.map(asset => (
                 <tr 
                   key={asset.id} 
-                  className="table-row transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  className={`table-row transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedIds.has(asset.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                   onClick={(e) => {
-                    // Prevent navigation if clicking action buttons
-                    if ((e.target as HTMLElement).closest('button')) return;
+                    // Prevent navigation if clicking action buttons or checkboxes
+                    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input[type="checkbox"]')) return;
                     navigate(`/assets/${asset.id}`);
                   }}
                 >
+                  <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(asset.id)}
+                      onChange={() => toggleSelect(asset.id)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <div className="font-semibold text-civic-text dark:text-white">{asset.employeeName}</div>
                     <div className="text-xs text-slate-400">{asset.position}</div>
@@ -223,7 +287,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
               ))}
               {filteredAssets.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center text-slate-400 italic">No assets found matching your criteria.</td>
+                  <td colSpan={7} className="px-6 py-20 text-center text-slate-400 italic">No assets found matching your criteria.</td>
                 </tr>
               )}
             </tbody>

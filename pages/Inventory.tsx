@@ -14,6 +14,7 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadItems();
@@ -35,6 +36,7 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
   const loadItems = async () => {
     const data = await storage.getAll<InventoryItem>(STORES.INVENTORY);
     setItems(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    setSelectedIds(new Set());
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -43,6 +45,42 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
       await storage.logActivity(user.id, user.username, 'DELETE_INVENTORY', `Deleted item: ${name}`);
       loadItems();
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (confirm(`Are you sure you want to delete ${count} item${count !== 1 ? 's' : ''}? This cannot be undone.`)) {
+      try {
+        for (const id of selectedIds) {
+          await storage.delete(STORES.INVENTORY, id);
+        }
+        await storage.logActivity(user.id, user.username, 'BULK_DELETE_INVENTORY', `Deleted ${count} inventory items`);
+        setSelectedIds(new Set());
+        loadItems();
+      } catch (error) {
+        console.error('Bulk delete failed:', error);
+        alert('Failed to delete some items. Please try again.');
+      }
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredItems.map(item => item.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
   };
 
   const filteredItems = items.filter(i =>
@@ -80,12 +118,30 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+            >
+              <ICONS.Trash className="w-4 h-4" />
+              Delete {selectedIds.size}
+            </button>
+          )}
         </div>
 
         <div className="overflow-x-auto">
           <table className="table-shell text-left">
             <thead className="table-head text-xs uppercase tracking-wider">
               <tr>
+                <th className="px-6 py-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size > 0 && selectedIds.size === filteredItems.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    title={selectedIds.size === filteredItems.length ? "Deselect all items" : "Select all items"}
+                  />
+                </th>
                 <th className="px-6 py-4">Item Details</th>
                 <th className="px-6 py-4">Category</th>
                 <th className="px-6 py-4">Quantity</th>
@@ -97,7 +153,15 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredItems.map(item => (
-                <tr key={item.id} className="table-row transition-colors">
+                <tr key={item.id} className={`table-row transition-colors ${selectedIds.has(item.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                  <td className="px-6 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <div className="font-semibold text-civic-text dark:text-white">{item.name}</div>
                     <div className="text-xs text-slate-400">SN: {item.serialNumber}</div>
@@ -144,7 +208,7 @@ const Inventory: React.FC<InventoryProps> = ({ user }) => {
               ))}
               {filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center text-slate-400 italic">No inventory items found matching your search.</td>
+                  <td colSpan={8} className="px-6 py-20 text-center text-slate-400 italic">No inventory items found matching your search.</td>
                 </tr>
               )}
             </tbody>
