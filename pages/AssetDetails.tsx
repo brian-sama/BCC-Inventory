@@ -143,7 +143,7 @@ const AssetDetails: React.FC<AssetDetailsProps> = ({ user }) => {
               <div>
                 <label className="text-sm text-civic-muted block mb-1">Department</label>
                 <div className="text-lg flex items-center">
-                  <Building2 className="w-4 h-4 mr-2 opacity-50" />
+                  <ICONS.Building2 className="w-4 h-4 mr-2 opacity-50" />
                   {asset.department || 'N/A'}
                 </div>
               </div>

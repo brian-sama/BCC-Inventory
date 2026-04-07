@@ -22,6 +22,14 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
   const [repairStatuses, setRepairStatuses] = useState<Record<string, string>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Pagination, Sort & Filter State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState<string>('addedDate');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+
   useEffect(() => {
     loadAssets();
     loadDepartments();
@@ -127,12 +135,42 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
     setSelectedIds(newSelected);
   };
 
-  const filteredAssets = assets.filter(a =>
-    a.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-    a.type.toLowerCase().includes(search.toLowerCase()) ||
-    a.srNumber.toLowerCase().includes(search.toLowerCase()) ||
-    a.department.toLowerCase().includes(search.toLowerCase())
+  const filteredAssets = assets
+    .filter(a => {
+      const matchesSearch = 
+        a.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+        a.type.toLowerCase().includes(search.toLowerCase()) ||
+        a.srNumber.toLowerCase().includes(search.toLowerCase()) ||
+        a.department.toLowerCase().includes(search.toLowerCase());
+      
+      const matchesStatus = filterStatus === 'all' || a.status.toLowerCase() === filterStatus.toLowerCase();
+      const matchesDept = filterDepartment === 'all' || a.department === filterDepartment;
+      
+      return matchesSearch && matchesStatus && matchesDept;
+    })
+    .sort((a, b) => {
+      let valA: any = a[sortBy as keyof Asset] || '';
+      let valB: any = b[sortBy as keyof Asset] || '';
+      
+      if (sortBy === 'addedDate') {
+        valA = new Date(a.createdAt).getTime();
+        valB = new Date(b.createdAt).getTime();
+      }
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+  const totalPages = Math.ceil(filteredAssets.length / itemsPerPage);
+  const paginatedAssets = filteredAssets.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus, filterDepartment, sortBy, sortOrder]);
 
   return (
     <div className="app-page">
@@ -164,11 +202,61 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
           <ICONS.Search className="w-5 h-5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by employee, asset type, SR number, or department..."
+            placeholder="Search by employee, asset type, SR number..."
             className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          
+          <div className="flex items-center gap-2 border-l border-civic-border pl-3">
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
+              <ICONS.Filter className="w-3.5 h-3.5 text-slate-400" />
+              <select 
+                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="under repair">Under Repair</option>
+                <option value="disposed">Disposed</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
+              <select 
+                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
+                value={filterDepartment}
+                onChange={(e) => setFilterDepartment(e.target.value)}
+              >
+                <option value="all">All Departments</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
+              <button 
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="p-0 border-none bg-transparent"
+                title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}
+              >
+                {sortOrder === 'asc' ? <ICONS.SortAsc className="w-3.5 h-3.5 text-blue-600" /> : <ICONS.SortDesc className="w-3.5 h-3.5 text-blue-600" />}
+              </button>
+              <select 
+                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="addedDate">Added Date</option>
+                <option value="employeeName">Employee</option>
+                <option value="asset_name">Asset Name</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+          </div>
+
           {selectedIds.size > 0 && (
             <button
               onClick={handleBulkDelete}
@@ -202,7 +290,7 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredAssets.map(asset => (
+              {paginatedAssets.map(asset => (
                 <tr 
                   key={asset.id} 
                   className={`table-row transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedIds.has(asset.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
@@ -292,6 +380,40 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Toolbar */}
+        <div className="px-6 py-4 border-t border-civic-border flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+          <div className="text-xs text-slate-500">
+            Showing <span className="font-semibold text-slate-700 dark:text-slate-300">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-semibold text-slate-700 dark:text-slate-300">{Math.min(currentPage * itemsPerPage, filteredAssets.length)}</span> of <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredAssets.length}</span> assets
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
+            >
+              <ICONS.ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-1">
+              {[...Array(totalPages)].map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCurrentPage(i + 1)}
+                  className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${currentPage === i + 1 ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500'}`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+            <button
+              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
+            >
+              <ICONS.ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
