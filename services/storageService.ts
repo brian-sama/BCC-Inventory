@@ -187,15 +187,22 @@ class StorageService {
     });
   }
 
-  async bulkAddAssets(assets: Partial<Asset>[]): Promise<void> {
+  async bulkAddAssets(assets: Partial<Asset>[]): Promise<{ imported: number; skipped: number }> {
     const chunkSize = 100;
+    let imported = 0;
+    let skipped = 0;
+
     for (let i = 0; i < assets.length; i += chunkSize) {
       const chunk = assets.slice(i, i + chunkSize);
-      await this.fetchApi('/assets/bulk', {
+      const result = await this.fetchApi<{ success: boolean; count?: number; skipped?: number }>('/assets/bulk', {
         method: 'POST',
         body: JSON.stringify(chunk),
       });
+      imported += result.count || 0;
+      skipped += result.skipped || 0;
     }
+
+    return { imported, skipped };
   }
 
   // General Actions

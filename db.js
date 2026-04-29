@@ -27,7 +27,7 @@ module.exports = {
                     retries--;
                     if (retries === 0) throw err;
                     console.log('Connection reset, retrying query...');
-                    await new Date(resolve => setTimeout(resolve, 500));
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 } else {
                     throw err;
                 }

@@ -112,7 +112,20 @@ async function migrate() {
             `);
         } catch (e) { console.error('Error creating audit_logs', e.message); }
 
-        console.log('9. Adding brand and purchase_date');
+        console.log('9. Creating activity_log table');
+        try {
+            await queryWithRetry(`
+                CREATE TABLE IF NOT EXISTS activity_log (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID,
+                    action VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+        } catch (e) { console.error('Error creating activity_log', e.message); }
+
+        console.log('10. Adding brand and purchase_date');
         try {
             await queryWithRetry(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS brand VARCHAR(150);`);
             await queryWithRetry(`ALTER TABLE assets ADD COLUMN IF NOT EXISTS purchase_date DATE;`);

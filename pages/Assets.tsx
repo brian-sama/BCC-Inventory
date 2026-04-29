@@ -751,17 +751,21 @@ const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
           }
 
           if (assetsToImport.length > 0) {
-            await storage.bulkAddAssets(assetsToImport);
+            const serverStats = await storage.bulkAddAssets(assetsToImport);
+            skippedCount += serverStats.skipped;
 
             await storage.logActivity(
               user.id,
               user.username,
               'IMPORT_ASSETS',
-              `Imported ${assetsToImport.length} assets, skipped ${skippedCount} rows.`
+              `Imported ${serverStats.imported} assets, skipped ${skippedCount} rows.`
             );
+
+            setImportStats({ imported: serverStats.imported, skipped: skippedCount });
+          } else {
+            setImportStats({ imported: 0, skipped: skippedCount });
           }
 
-          setImportStats({ imported: assetsToImport.length, skipped: skippedCount });
           setIsUploading(false);
 
           // Wait a moment for the user to see the success message before closing or reloading

@@ -94,6 +94,12 @@ function isSessionTableMissingError(error) {
     return error.code === '42P01' || errorText.includes('user_sessions');
 }
 
+function isRelationMissingError(error, relationName) {
+    if (!error) return false;
+    const errorText = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+    return error.code === '42P01' || errorText.includes(relationName.toLowerCase());
+}
+
 function getSessionExpiryCutoffIso() {
     return new Date(Date.now() - SESSION_TTL_MS).toISOString();
 }
@@ -188,12 +194,55 @@ async function deactivateSession(sessionId) {
 async function logAction(userId, username, action, details) {
     try {
         await db.query(
-            'INSERT INTO audit_logs (user_id, action, details) VALUES ($1, $2, $3)',
-            [userId, action, details]
+            'INSERT INTO audit_logs (user_id, user_name, action, details) VALUES ($1, $2, $3, $4)',
+            [userId, username, action, details]
         );
         console.log(`Audit Log: ${username} - ${action}`);
     } catch (err) {
         console.error('Failed to log action:', err.message);
+    }
+}
+
+async function recordActivity(userId, username, action, details, timestamp = new Date().toISOString()) {
+    try {
+        await db.query(
+            'INSERT INTO activity_log (user_id, action, description, timestamp) VALUES ($1, $2, $3, $4)',
+            [userId || null, action, details || '', timestamp]
+        );
+    } catch (error) {
+        if (!isRelationMissingError(error, 'activity_log')) {
+            throw error;
+        }
+
+        await logAction(userId, username || 'System', action, details || '');
+    }
+}
+
+async function fetchActivityLogs(limit = 50) {
+    try {
+        const result = await db.query(`
+            SELECT a.*, u.name as user_name, u.role as user_role
+            FROM activity_log a
+            LEFT JOIN users u ON a.user_id = u.id
+            ORDER BY a.timestamp DESC
+            LIMIT $1
+        `, [limit]);
+        return result.rows;
+    } catch (error) {
+        if (!isRelationMissingError(error, 'activity_log')) {
+            throw error;
+        }
+
+        const result = await db.query(`
+            SELECT al.id, al.user_id, al.action, al.details as description, al.timestamp,
+                   COALESCE(u.name, al.user_name, u.username, 'System') as user_name,
+                   u.role as user_role
+            FROM audit_logs al
+            LEFT JOIN users u ON al.user_id = u.id
+            ORDER BY al.timestamp DESC
+            LIMIT $1
+        `, [limit]);
+        return result.rows;
     }
 }
 
@@ -478,7 +527,7 @@ app.post('/api/inventory', authenticateSession, async (req, res) => {
         ]);
         const newItemId = result.rows[0].id;
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'ADD_INVENTORY', `Added inventory item: ${itemData.name || itemCode}`);
 
         res.json({ success: true, itemId: newItemId, message: 'Item added successfully!' });
     } catch (error) {
@@ -660,7 +709,7 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
         const result = await db.query(queryText, insertValues);
         const newAssetId = result.rows[0].id;
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'ADD_ASSET', `Registered asset ${generatedSR} for ${assetData.employeeName || 'unknown employee'}`);
 
         res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: newAssetId });
     } catch (error) {
@@ -672,7 +721,7 @@ app.delete('/api/assets/:id', authenticateSession, async (req, res) => {
     try {
         await db.query('DELETE FROM assets WHERE id = $1', [req.params.id]);
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'DELETE_ASSET', `Deleted asset id ${req.params.id}`);
 
         res.json({ success: true, message: 'Asset deleted successfully' });
     } catch (error) {
@@ -726,7 +775,7 @@ app.get('/api/assets/:id', authenticateSession, async (req, res) => {
 app.get('/api/audit-logs', authenticateSession, async (req, res) => {
     try {
         const result = await db.query(`
-            SELECT al.*, u.username, u.full_name as fullName
+            SELECT al.*, COALESCE(u.username, al.user_name) as username, COALESCE(u.name, al.user_name) as "fullName"
             FROM audit_logs al
             LEFT JOIN users u ON al.user_id = u.id
             ORDER BY al.timestamp DESC
@@ -743,8 +792,49 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
     if (!Array.isArray(assetsData)) {
         return res.status(400).json({ success: false, error: 'Data must be an array of assets' });
     }
+    if (assetsData.length === 0) {
+        return res.status(400).json({ success: false, error: 'No assets supplied for import' });
+    }
 
     try {
+        const serials = assetsData
+            .map(asset => `${asset.serialNumber || ''}`.trim())
+            .filter(Boolean);
+        const existingSerials = new Set();
+        if (serials.length > 0) {
+            const existingResult = await db.query(
+                'SELECT lower(serial_number) as serial_number FROM assets WHERE lower(serial_number) = ANY($1)',
+                [serials.map(serial => serial.toLowerCase())]
+            );
+            existingResult.rows.forEach(row => existingSerials.add(row.serial_number));
+        }
+
+        const seenSerials = new Set();
+        let skippedCount = 0;
+        const validAssetsData = assetsData.filter(asset => {
+            const employeeName = `${asset.employeeName || ''}`.trim();
+            const serial = `${asset.serialNumber || ''}`.trim();
+            const normalizedSerial = serial.toLowerCase();
+            if (!employeeName || !normalizedSerial) {
+                skippedCount++;
+                return false;
+            }
+            if (existingSerials.has(normalizedSerial) || seenSerials.has(normalizedSerial)) {
+                skippedCount++;
+                return false;
+            }
+            seenSerials.add(normalizedSerial);
+            return true;
+        });
+
+        if (validAssetsData.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'No valid new asset rows found. Required fields may be missing or serial numbers may already exist.',
+                skipped: skippedCount
+            });
+        }
+
         const assetsColumns = await getAssetsColumns();
         const candidateColumns = [
             'asset_name',
@@ -774,11 +864,11 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 
         const queryText = `
             INSERT INTO assets (${insertColumns.join(', ')})
-            VALUES ${assetsData.map((_, rowIndex) => `(${insertColumns.map((__, colIndex) => `$${rowIndex * insertColumns.length + colIndex + 1}`).join(', ')})`).join(', ')}
+            VALUES ${validAssetsData.map((_, rowIndex) => `(${insertColumns.map((__, colIndex) => `$${rowIndex * insertColumns.length + colIndex + 1}`).join(', ')})`).join(', ')}
             RETURNING id
         `;
         const params = [];
-        assetsData.forEach(asset => {
+        validAssetsData.forEach(asset => {
             let purchaseDateVal = null;
             let warrantyExpiryVal = null;
             let disposalDateVal = null;
@@ -828,9 +918,9 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
 
         const result = await db.query(queryText, params);
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'IMPORT_ASSETS', `Imported ${result.rows.length} assets, skipped ${skippedCount} rows.`);
 
-        res.json({ success: true, message: `Successfully imported ${result.rows.length} assets`, count: result.rows.length });
+        res.json({ success: true, message: `Successfully imported ${result.rows.length} assets`, count: result.rows.length, skipped: skippedCount });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -890,7 +980,7 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
         params.push(assetData.id);
         await db.query(queryText, params);
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'UPDATE_ASSET', `Updated asset id ${assetData.id}`);
         res.json({ success: true, message: 'Asset updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -917,8 +1007,18 @@ app.put('/api/inventory', authenticateSession, async (req, res) => {
             itemData.id
         ]);
 
-        await logAction(req.user.userId, req.user.username, 'action', `Details for action`);
+        await logAction(req.user.userId, req.user.username, 'UPDATE_INVENTORY', `Updated inventory item: ${itemData.name || itemData.id}`);
         res.json({ success: true, message: 'Item updated successfully!' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/inventory/:id', authenticateSession, async (req, res) => {
+    try {
+        await db.query('UPDATE inventory SET status = $1 WHERE id = $2', ['inactive', req.params.id]);
+        await logAction(req.user.userId, req.user.username, 'DELETE_INVENTORY', `Deleted inventory item id ${req.params.id}`);
+        res.json({ success: true, message: 'Inventory item deleted successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -929,13 +1029,7 @@ app.get('/api/stats/dashboard', authenticateSession, async (req, res) => {
         const inventoryResult = await db.query('SELECT unit_cost as price, quantity FROM inventory WHERE status = $1', ['active']);
         const lowStockResult = await db.query('SELECT count(*) FROM inventory WHERE quantity <= 10');
         const totalAssetsResult = await db.query('SELECT count(*) FROM assets');
-        const activityResult = await db.query(`
-            SELECT a.*, u.name as user_name 
-            FROM activity_log a 
-            LEFT JOIN users u ON a.user_id = u.id 
-            ORDER BY a.timestamp DESC 
-            LIMIT 10
-        `);
+        const recentActivity = await fetchActivityLogs(10);
 
         const inventory = inventoryResult.rows;
         const totalValue = inventory.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
@@ -952,7 +1046,7 @@ app.get('/api/stats/dashboard', authenticateSession, async (req, res) => {
                     totalAssets: parseInt(totalAssetsResult.rows[0].count),
                     activeAssets: parseInt(totalAssetsResult.rows[0].count)
                 },
-                recentActivity: activityResult.rows
+                recentActivity
             }
         });
     } catch (error) {
@@ -996,6 +1090,9 @@ app.get('/api/users', authenticateSession, async (req, res) => {
 app.post('/api/users', authenticateSession, async (req, res) => {
     const userData = req.body;
     try {
+        if (!userData.username || !userData.fullName) {
+            return res.status(400).json({ success: false, error: 'Username and full name are required' });
+        }
         const hashedPassword = await bcrypt.hash(userData.password || 'Bcc12345!', 10);
         const initials = userData.fullName.split(' ').map(n => n[0]).join('').toUpperCase();
         const queryText = `
@@ -1028,15 +1125,22 @@ app.delete('/api/users/:id', authenticateSession, async (req, res) => {
 
 app.get('/api/activity-logs', authenticateSession, async (req, res) => {
     try {
-        const queryText = `
-            SELECT a.*, u.name as user_name, u.role as user_role 
-            FROM activity_log a 
-            LEFT JOIN users u ON a.user_id = u.id 
-            ORDER BY a.timestamp DESC 
-            LIMIT 50
-        `;
-        const result = await db.query(queryText);
-        res.json({ success: true, logs: result.rows });
+        const logs = await fetchActivityLogs(50);
+        res.json({ success: true, logs });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/activity-logs', authenticateSession, async (req, res) => {
+    const { action, details, timestamp } = req.body;
+    if (!action) {
+        return res.status(400).json({ success: false, error: 'Activity action is required' });
+    }
+
+    try {
+        await recordActivity(req.user.userId, req.user.username, action, details || '', timestamp);
+        res.json({ success: true, message: 'Activity logged' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

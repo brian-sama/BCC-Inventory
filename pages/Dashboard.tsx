@@ -8,6 +8,7 @@ import PageHeader from '../components/ui/PageHeader';
 import SectionCard from '../components/ui/SectionCard';
 import TrackingButton from '../components/ui/TrackingButton';
 import { storage, STORES } from '../services/storageService';
+import { STREAMLIT_EMBED_URL } from '../services/streamlitConfig';
 import { trackingService } from '../services/trackingService';
 import {
   ActivityLog,
@@ -383,8 +384,8 @@ const Dashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
             <SectionCard title="Inventory by Category" className="xl:col-span-8">
-              <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-[260px] min-h-[260px] min-w-0">
+                <ResponsiveContainer width="100%" height={260} minWidth={1} minHeight={1}>
                   <BarChart data={inventoryByCategory}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                     <XAxis dataKey="name" fontSize={12} stroke="#64748B" />
@@ -558,7 +559,7 @@ const Dashboard: React.FC = () => {
               </div>
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm" style={{ height: '600px' }}>
                 <iframe 
-                  src="https://bcc-inventorygit-wy45nc9x6hlkvdvs8xqovp.streamlit.app/?embed=true" 
+                  src={STREAMLIT_EMBED_URL} 
                   width="100%" 
                   height="100%" 
                   frameBorder="0" 
@@ -567,7 +568,7 @@ const Dashboard: React.FC = () => {
                 ></iframe>
               </div>
               <p className="mt-3 text-xs text-center text-slate-400">
-                Note: This dashboard is hosted on Streamlit Cloud. If it does not appear, ensure you have deployed [analytics/app.py] and updated this URL.
+                Note: This dashboard uses the configured Streamlit URL. Set VITE_STREAMLIT_URL when deploying a different Streamlit app.
               </p>
             </section>
           </div>
