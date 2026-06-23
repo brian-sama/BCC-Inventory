@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { storage, STORES } from '../services/storageService';
 import { Asset, User, Department } from '../types';
@@ -6,6 +6,10 @@ import { ICONS } from '../constants';
 import Papa from 'papaparse';
 import { format, addYears } from 'date-fns';
 import PageHeader from '../components/ui/PageHeader';
+import { TableSkeleton } from '../components/Skeleton';
+import { useToast } from '../components/ToastProvider';
+import { ConfirmModal } from '../components/ConfirmModal';
+import Pagination from '../components/ui/Pagination';
 
 interface AssetsProps {
   user: User;
@@ -13,164 +17,122 @@ interface AssetsProps {
 
 const Assets: React.FC<AssetsProps> = ({ user }) => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [repairStatuses, setRepairStatuses] = useState<Record<string, string>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id: string; name: string } | null>(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
-  // Pagination, Sort & Filter State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  const [sortBy, setSortBy] = useState<string>('addedDate');
+  const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDepartment, setFilterDepartment] = useState('all');
+
+  const loadAssets = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await storage.getAll<Asset>(STORES.ASSETS);
+      setAssets(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setSelectedIds(new Set());
+      loadRepairStatuses(data);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadAssets();
-    loadDepartments();
-  }, []);
-
-  const loadDepartments = async () => {
-    try {
-      const response = await fetch('/api/departments', { credentials: 'include' });
-      const data = await response.json();
-      if (data.success) {
-        setDepartments(data.departments);
-      }
-    } catch (e) {
-      console.warn('Failed to load departments');
-    }
-  };
-
-  const loadAssets = async () => {
-    const data = await storage.getAll<Asset>(STORES.ASSETS);
-    setAssets(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    setSelectedIds(new Set());
-
-    // Potentially load external repair statuses
-    loadRepairStatuses(data);
-  };
+    (async () => {
+      try {
+        const res = await fetch('/api/departments', { credentials: 'include' });
+        const data = await res.json();
+        if (data.success) setDepartments(data.departments);
+      } catch { console.warn('Failed to load departments'); }
+    })();
+  }, [loadAssets]);
 
   const loadRepairStatuses = async (currentAssets: Asset[]) => {
-    // Only check status for assets marked as 'Under Repair' to save bandwidth
-    const assetsInRepair = currentAssets.filter(a => a.status === 'Under Repair' && a.serialNumber);
-    const newStatuses: Record<string, string> = {};
-
-    for (const asset of assetsInRepair) {
+    const inRepair = currentAssets.filter(a => a.status === 'Under Repair' && a.serialNumber);
+    const statuses: Record<string, string> = {};
+    for (const asset of inRepair) {
       try {
-        // Call our internal proxy which talks to the external repairs system
-        const response = await fetch(`/api/assets/repair-status/${asset.serialNumber}`, {
-          credentials: 'include',
-        });
-        const result = await response.json();
-
-        if (result.success && result.data?.inRepair) {
-          newStatuses[asset.serialNumber] = result.data.status || 'In Shop';
-        } else {
-          // Fallback if external system says it's not there or fails
-          newStatuses[asset.serialNumber] = 'In Shop (Syncing...)';
-        }
-      } catch (err) {
-        console.warn('Failed to load repair status for', asset.serialNumber);
-      }
+        const res = await fetch(`/api/assets/repair-status/${asset.serialNumber}`, { credentials: 'include' });
+        const result = await res.json();
+        statuses[asset.serialNumber] = result.success && result.data?.status ? result.data.status : 'In Shop';
+      } catch { /* silent */ }
     }
-    setRepairStatuses(newStatuses);
+    setRepairStatuses(statuses);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!id) {
-      console.error('Cannot delete asset: Missing ID');
-      return;
-    }
-    if (confirm(`Unregister asset assigned to ${name}? This cannot be undone.`)) {
-      try {
-        await storage.delete(STORES.ASSETS, id);
-        await storage.logActivity(user.id, user.username, 'DELETE_ASSET', `Deleted asset assigned to: ${name}`);
-        loadAssets();
-      } catch (error) {
-        console.error('Delete failed', error);
-        alert('Failed to delete asset. Please try again.');
-      }
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await storage.delete(STORES.ASSETS, deleteConfirm.id);
+      await storage.logActivity(user.id, user.username, 'DELETE_ASSET', `Deleted asset assigned to: ${deleteConfirm.name}`);
+      showToast(`Asset for "${deleteConfirm.name}" unregistered.`, 'success');
+      loadAssets();
+    } catch {
+      showToast('Failed to delete asset.', 'error');
+    } finally {
+      setDeleteConfirm(null);
     }
   };
 
   const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
     const count = selectedIds.size;
-    if (confirm(`Unregister ${count} asset${count !== 1 ? 's' : ''}? This cannot be undone.`)) {
-      try {
-        for (const id of selectedIds) {
-          await storage.delete(STORES.ASSETS, id);
-        }
-        await storage.logActivity(user.id, user.username, 'BULK_DELETE_ASSET', `Deleted ${count} assets`);
-        setSelectedIds(new Set());
-        loadAssets();
-      } catch (error) {
-        console.error('Bulk delete failed:', error);
-        alert('Failed to delete some assets. Please try again.');
-      }
+    try {
+      for (const id of selectedIds) await storage.delete(STORES.ASSETS, id);
+      await storage.logActivity(user.id, user.username, 'BULK_DELETE_ASSET', `Deleted ${count} assets`);
+      showToast(`${count} asset${count !== 1 ? 's' : ''} unregistered.`, 'success');
+      setSelectedIds(new Set());
+      loadAssets();
+    } catch {
+      showToast('Failed to delete some assets.', 'error');
+    } finally {
+      setBulkDeleteConfirm(false);
     }
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredAssets.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredAssets.map(asset => asset.id)));
-    }
+    if (selectedIds.size === filteredAssets.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredAssets.map(a => a.id)));
   };
 
   const toggleSelect = (id: string) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedIds(newSelected);
+    const next = new Set(selectedIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setSelectedIds(next);
   };
 
   const filteredAssets = assets
     .filter(a => {
-      const matchesSearch = 
-        a.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-        a.type.toLowerCase().includes(search.toLowerCase()) ||
-        a.srNumber.toLowerCase().includes(search.toLowerCase()) ||
-        a.department.toLowerCase().includes(search.toLowerCase());
-      
+      const q = search.toLowerCase();
+      const matchesSearch = a.employeeName.toLowerCase().includes(q) || a.type.toLowerCase().includes(q) || a.srNumber.toLowerCase().includes(q) || a.department.toLowerCase().includes(q);
       const matchesStatus = filterStatus === 'all' || a.status.toLowerCase() === filterStatus.toLowerCase();
       const matchesDept = filterDepartment === 'all' || a.department === filterDepartment;
-      
       return matchesSearch && matchesStatus && matchesDept;
     })
     .sort((a, b) => {
-      let valA: any = a[sortBy as keyof Asset] || '';
-      let valB: any = b[sortBy as keyof Asset] || '';
-      
-      if (sortBy === 'addedDate') {
-        valA = new Date(a.createdAt).getTime();
-        valB = new Date(b.createdAt).getTime();
-      }
-
+      let valA: any = sortBy === 'createdAt' ? new Date(a.createdAt).getTime() : (a as any)[sortBy] || '';
+      let valB: any = sortBy === 'createdAt' ? new Date(b.createdAt).getTime() : (b as any)[sortBy] || '';
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
 
-  const totalPages = Math.ceil(filteredAssets.length / itemsPerPage);
-  const paginatedAssets = filteredAssets.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  useEffect(() => { setCurrentPage(1); }, [search, filterStatus, filterDepartment, sortBy, sortOrder]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, filterStatus, filterDepartment, sortBy, sortOrder]);
+  const totalPages = Math.ceil(filteredAssets.length / itemsPerPage);
+  const paginatedAssets = filteredAssets.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="app-page">
@@ -179,89 +141,67 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
         subtitle="Track company hardware assigned to staff members."
         actions={
           <>
-            <button
-              onClick={() => {
-                setEditingAsset(null);
-                setIsModalOpen(true);
-              }}
-              className="civic-button-primary"
-            >
+            <button type="button" onClick={() => { setEditingAsset(null); setIsModalOpen(true); }} className="civic-button-primary">
               <ICONS.Plus className="w-5 h-5" />
               Register New Asset
             </button>
-            <button onClick={() => setIsImportModalOpen(true)} className="civic-button-secondary">
+            <button type="button" onClick={() => setIsImportModalOpen(true)} className="civic-button-secondary">
               <ICONS.Upload className="w-5 h-5" />
-              Import Assets (CSV)
+              Import CSV
             </button>
           </>
         }
       />
 
       <div className="surface-card overflow-hidden p-0">
-        <div className="flex items-center gap-3 border-b border-civic-border bg-slate-50 px-4 py-3 dark:bg-slate-800/70">
-          <ICONS.Search className="w-5 h-5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by employee, asset type, SR number..."
-            className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          
-          <div className="flex items-center gap-2 border-l border-civic-border pl-3">
+        <div className="flex flex-wrap items-center gap-3 border-b border-civic-border bg-slate-50 px-4 py-3 dark:bg-slate-800/70">
+          <ICONS.Search className="w-5 h-5 text-slate-400 flex-shrink-0" />
+          <div className="relative flex-1 min-w-[160px]">
+            <input
+              type="text"
+              placeholder="Search by employee, asset type, SR number..."
+              className="w-full border-none bg-transparent text-sm placeholder-slate-400 focus:ring-0 dark:text-white pr-7"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} aria-label="Clear search" className="absolute right-0 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 border-l border-civic-border pl-3 flex-wrap">
             <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
               <ICONS.Filter className="w-3.5 h-3.5 text-slate-400" />
-              <select 
-                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
+              <select title="Filter by status" aria-label="Filter by status" className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="under repair">Under Repair</option>
                 <option value="disposed">Disposed</option>
               </select>
             </div>
-
             <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
-              <select 
-                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
-                value={filterDepartment}
-                onChange={(e) => setFilterDepartment(e.target.value)}
-              >
+              <select title="Filter by department" aria-label="Filter by department" className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200" value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)}>
                 <option value="all">All Departments</option>
-                {departments.map(d => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))}
+                {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             </div>
-
             <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-sm">
-              <button 
-                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                className="p-0 border-none bg-transparent"
-                title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}
-              >
+              <button type="button" onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')} title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}>
                 {sortOrder === 'asc' ? <ICONS.SortAsc className="w-3.5 h-3.5 text-blue-600" /> : <ICONS.SortDesc className="w-3.5 h-3.5 text-blue-600" />}
               </button>
-              <select 
-                className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="addedDate">Added Date</option>
+              <select title="Sort by field" aria-label="Sort by field" className="bg-transparent text-xs border-none focus:ring-0 p-0 pr-6 dark:text-slate-200" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="createdAt">Added Date</option>
                 <option value="employeeName">Employee</option>
-                <option value="asset_name">Asset Name</option>
+                <option value="type">Asset Name</option>
                 <option value="status">Status</option>
               </select>
             </div>
           </div>
 
           {selectedIds.size > 0 && (
-            <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
-            >
+            <button type="button" onClick={() => setBulkDeleteConfirm(true)} className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap">
               <ICONS.Trash className="w-4 h-4" />
               Delete {selectedIds.size}
             </button>
@@ -269,186 +209,141 @@ const Assets: React.FC<AssetsProps> = ({ user }) => {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="table-shell text-left">
-            <thead className="table-head text-xs uppercase tracking-wider">
-              <tr>
-                <th className="px-6 py-4 w-10">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size > 0 && selectedIds.size === filteredAssets.length}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                    title={selectedIds.size === filteredAssets.length ? "Deselect all assets" : "Select all assets"}
-                  />
-                </th>
-                <th className="px-6 py-4">Employee & Position</th>
-                <th className="px-6 py-4">Asset Info</th>
-                <th className="px-6 py-4">Department</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Lifecycle Dates</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {paginatedAssets.map(asset => (
-                <tr 
-                  key={asset.id} 
-                  className={`table-row transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedIds.has(asset.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                  onClick={(e) => {
-                    // Prevent navigation if clicking action buttons or checkboxes
-                    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input[type="checkbox"]')) return;
-                    navigate(`/assets/${asset.id}`);
-                  }}
-                >
-                  <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(asset.id)}
-                      onChange={() => toggleSelect(asset.id)}
-                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                    />
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-semibold text-civic-text dark:text-white">{asset.employeeName}</div>
-                    <div className="text-xs text-slate-400">{asset.position}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-civic-text dark:text-slate-300">
-                      {asset.brand ? `${asset.brand} ` : ''}{asset.type}
-                    </div>
-                    <div className="text-[10px] text-slate-400 uppercase tracking-tighter flex flex-col">
-                      <span>SR: {asset.srNumber}</span>
-                      {asset.serialNumber && <span>SN: {asset.serialNumber}</span>}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-civic-muted dark:text-slate-400">{asset.department}</span>
-                    <div className="text-[10px] text-slate-400 italic">{asset.section}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
-                      <StatusBadge status={asset.status} />
-                      {repairStatuses[asset.serialNumber] && (
-                        <span className="flex items-center gap-1 text-[9px] font-bold text-amber-500 uppercase bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                          <ICONS.AlertCircle className="w-3 h-3" />
-                          Repair: {repairStatuses[asset.serialNumber]}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1 text-xs text-civic-muted dark:text-slate-400">
-                      {asset.purchaseDate && <span>Purchased: {format(new Date(asset.purchaseDate), 'dd/MM/yyyy')}</span>}
-                      {asset.warrantyExpiry && (
-                        new Date(asset.warrantyExpiry) < new Date() ? (
-                          <span className="text-red-500 font-bold">Wty: Expired</span>
-                        ) : (
-                          <span>Wty Exp: {format(new Date(asset.warrantyExpiry), 'dd/MM/yyyy')}</span>
-                        )
-                      )}
-                      {asset.disposalDate && <span>Dispose: {format(new Date(asset.disposalDate), 'dd/MM/yyyy')}</span>}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => { setEditingAsset(asset); setIsModalOpen(true); }}
-                        className="p-1.5 text-slate-400 hover:text-civic-primary transition-colors"
-                        title="Edit Asset"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDelete(asset.id, asset.employeeName)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
-                        title="Delete Asset"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredAssets.length === 0 && (
+          {isLoading ? (
+            <TableSkeleton rows={8} cols={7} />
+          ) : (
+            <table className="table-shell text-left">
+              <thead className="table-head text-xs uppercase tracking-wider">
                 <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center text-slate-400 italic">No assets found matching your criteria.</td>
+                  <th className="px-6 py-4 w-10">
+                    <input type="checkbox" title="Select all assets" checked={selectedIds.size > 0 && selectedIds.size === filteredAssets.length} onChange={toggleSelectAll} className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                  </th>
+                  <th className="px-6 py-4">Employee &amp; Position</th>
+                  <th className="px-6 py-4">Asset Info</th>
+                  <th className="px-6 py-4">Department</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4">Lifecycle Dates</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {paginatedAssets.map(asset => (
+                  <tr
+                    key={asset.id}
+                    className={`table-row transition-colors cursor-pointer ${selectedIds.has(asset.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                      navigate(`/assets/${asset.id}`);
+                    }}
+                  >
+                    <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select ${asset.employeeName}`} checked={selectedIds.has(asset.id)} onChange={() => toggleSelect(asset.id)} className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-civic-text dark:text-white">{asset.employeeName}</div>
+                      <div className="text-xs text-slate-400">{asset.position}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-civic-text dark:text-slate-300">{asset.brand ? `${asset.brand} ` : ''}{asset.type}</div>
+                      <div className="text-[10px] text-slate-400 uppercase tracking-tighter flex flex-col">
+                        <span>SR: {asset.srNumber}</span>
+                        {asset.serialNumber && <span>SN: {asset.serialNumber}</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-civic-muted dark:text-slate-400">{asset.department}</span>
+                      <div className="text-[10px] text-slate-400 italic">{asset.section}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={asset.status} />
+                        {repairStatuses[asset.serialNumber] && (
+                          <span className="flex items-center gap-1 text-[9px] font-bold text-amber-500 uppercase bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                            <ICONS.AlertCircle className="w-3 h-3" />
+                            Repair: {repairStatuses[asset.serialNumber]}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1 text-xs text-civic-muted dark:text-slate-400">
+                        {asset.purchaseDate && <span>Purchased: {format(new Date(asset.purchaseDate), 'dd/MM/yyyy')}</span>}
+                        {asset.warrantyExpiry && (
+                          new Date(asset.warrantyExpiry) < new Date()
+                            ? <span className="text-red-500 font-bold">Wty: Expired</span>
+                            : <span>Wty Exp: {format(new Date(asset.warrantyExpiry), 'dd/MM/yyyy')}</span>
+                        )}
+                        {asset.disposalDate && <span>Dispose: {format(new Date(asset.disposalDate), 'dd/MM/yyyy')}</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => { setEditingAsset(asset); setIsModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-civic-primary transition-colors" title="Edit Asset" aria-label="Edit asset">
+                          <ICONS.Edit className="w-5 h-5" />
+                        </button>
+                        <button type="button" onClick={() => setDeleteConfirm({ isOpen: true, id: asset.id, name: asset.employeeName })} className="p-1.5 text-slate-400 hover:text-red-600 transition-colors" title="Delete Asset" aria-label="Delete asset">
+                          <ICONS.Trash className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredAssets.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-20 text-center text-slate-400 italic">No assets found matching your criteria.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        {/* Pagination Toolbar */}
-        <div className="px-6 py-4 border-t border-civic-border flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
-          <div className="text-xs text-slate-500">
-            Showing <span className="font-semibold text-slate-700 dark:text-slate-300">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-semibold text-slate-700 dark:text-slate-300">{Math.min(currentPage * itemsPerPage, filteredAssets.length)}</span> of <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredAssets.length}</span> assets
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
-            >
-              <ICONS.ChevronLeft className="w-4 h-4" />
-            </button>
-            <div className="flex items-center gap-1">
-              {[...Array(totalPages)].map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCurrentPage(i + 1)}
-                  className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${currentPage === i + 1 ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500'}`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-            <button
-              disabled={currentPage === totalPages || totalPages === 0}
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
-            >
-              <ICONS.ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredAssets.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setCurrentPage}
+          itemLabel="assets"
+        />
       </div>
 
       {isModalOpen && (
-        <AssetModal
-          asset={editingAsset}
-          departments={departments}
-          user={user}
-          onClose={() => setIsModalOpen(false)}
-          onSave={() => { loadAssets(); setIsModalOpen(false); }}
-        />
+        <AssetModal asset={editingAsset} departments={departments} user={user} onClose={() => setIsModalOpen(false)} onSave={() => { loadAssets(); setIsModalOpen(false); }} />
+      )}
+      {isImportModalOpen && (
+        <ImportModal user={user} onClose={() => setIsImportModalOpen(false)} onSave={() => { loadAssets(); setIsImportModalOpen(false); }} />
       )}
 
-      {isImportModalOpen && (
-        <ImportModal
-          user={user}
-          onClose={() => setIsImportModalOpen(false)}
-          onSave={() => { loadAssets(); setIsImportModalOpen(false); }}
-        />
-      )}
+      <ConfirmModal
+        isOpen={!!deleteConfirm?.isOpen}
+        title="Unregister Asset?"
+        message={`Remove the asset assigned to "${deleteConfirm?.name}"? This cannot be undone.`}
+        confirmText="Unregister"
+        isDanger
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
+      <ConfirmModal
+        isOpen={bulkDeleteConfirm}
+        title={`Unregister ${selectedIds.size} Asset${selectedIds.size !== 1 ? 's' : ''}?`}
+        message="This will permanently remove all selected assets from the registry."
+        confirmText="Unregister All"
+        isDanger
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkDeleteConfirm(false)}
+      />
     </div>
   );
 };
 
 const StatusBadge: React.FC<{ status: Asset['status'] }> = ({ status }) => {
-  const styles = {
+  const styles: Record<string, string> = {
     Active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     'Under Repair': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    Disposed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+    Disposed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   };
-  return (
-    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${styles[status]}`}>
-      {status}
-    </span>
-  );
+  return <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${styles[status] || styles.Active}`}>{status}</span>;
 };
 
 interface ModalProps {
@@ -460,25 +355,18 @@ interface ModalProps {
 }
 
 const AssetModal: React.FC<ModalProps> = ({ asset, departments, user, onClose, onSave }) => {
-  const [formData, setFormData] = useState<Partial<Asset>>(
-    asset || {
-      employeeName: '', type: '', srNumber: '', serialNumber: '', extNumber: '', officeNumber: '',
-      position: '', departmentId: '', department: '', section: '', warrantyExpiry: '', status: 'Active',
-      brand: '', purchaseDate: new Date().toISOString().split('T')[0], disposalDate: ''
-    }
-  );
+  const { showToast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState<Partial<Asset>>(asset || {
+    employeeName: '', type: '', srNumber: '', serialNumber: '', extNumber: '', officeNumber: '',
+    position: '', departmentId: '', department: '', section: '', warrantyExpiry: '', status: 'Active',
+    brand: '', purchaseDate: new Date().toISOString().split('T')[0], disposalDate: ''
+  });
 
   useEffect(() => {
-    // Force re-initialization of values when editing, especially dates
-    if (asset) {
-      setFormData({
-        ...asset,
-        purchaseDate: asset.purchaseDate || new Date().toISOString().split('T')[0]
-      });
-    }
+    if (asset) setFormData({ ...asset, purchaseDate: asset.purchaseDate || new Date().toISOString().split('T')[0] });
   }, [asset]);
 
-  // Client-side auto-calculation for visual feedback (Backend does the actual DB saving)
   useEffect(() => {
     if (formData.purchaseDate) {
       try {
@@ -487,163 +375,90 @@ const AssetModal: React.FC<ModalProps> = ({ asset, departments, user, onClose, o
           setFormData(prev => ({
             ...prev,
             warrantyExpiry: addYears(pd, 1).toISOString().split('T')[0],
-            disposalDate: addYears(pd, 3).toISOString().split('T')[0]
+            disposalDate: addYears(pd, 3).toISOString().split('T')[0],
           }));
         }
-      } catch (e) {
-        // invalid date
-      }
+      } catch { /* invalid date */ }
     }
   }, [formData.purchaseDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Do not generate ID for new assets, let backend handle it
-    const newAsset = {
-      ...formData,
-      ...(asset?.id ? { id: asset.id } : {}),
-      createdAt: asset?.createdAt || new Date().toISOString()
-    } as Asset;
-
-    await storage.save(STORES.ASSETS, newAsset);
-    await storage.logActivity(
-      user.id,
-      user.username,
-      asset ? 'UPDATE_ASSET' : 'ADD_ASSET',
-      `${asset ? 'Updated' : 'Assigned'} asset to: ${newAsset.employeeName}`
-    );
-    onSave();
+    setIsSubmitting(true);
+    try {
+      const newAsset = { ...formData, ...(asset?.id ? { id: asset.id } : {}), createdAt: asset?.createdAt || new Date().toISOString() } as Asset;
+      await storage.save(STORES.ASSETS, newAsset);
+      await storage.logActivity(user.id, user.username, asset ? 'UPDATE_ASSET' : 'ADD_ASSET', `${asset ? 'Updated' : 'Assigned'} asset to: ${newAsset.employeeName}`);
+      showToast(`Asset ${asset ? 'updated' : 'registered'} successfully.`, 'success');
+      onSave();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save asset.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const inputCls = "w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white";
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20" role="dialog" aria-modal="true">
       <div className="bg-white dark:bg-slate-900 w-full max-w-2xl my-8 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
           <h3 className="text-lg font-bold dark:text-white">{asset ? 'Edit Asset Registration' : 'Register New Asset'}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500" title="Close">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500" aria-label="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div className="space-y-4">
-            <h4 className="text-sm font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-4 h-px bg-blue-600"></span>
-              Custodian Details
-            </h4>
+            <h4 className="text-sm font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2"><span className="w-4 h-px bg-blue-600"></span>Custodian Details</h4>
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label htmlFor="employeeName" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Employee Name</label>
-                <input id="employeeName" required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.employeeName} onChange={(e) => setFormData({ ...formData, employeeName: e.target.value })} />
-              </div>
+              <div className="col-span-2"><label htmlFor="a-emp" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Employee Name</label><input id="a-emp" required type="text" className={inputCls} value={formData.employeeName} onChange={e => setFormData({ ...formData, employeeName: e.target.value })} /></div>
+              <div><label htmlFor="a-pos" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Position</label><input id="a-pos" required type="text" className={inputCls} value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} /></div>
+              <div><label htmlFor="a-ext" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Ext Number</label><input id="a-ext" type="text" className={inputCls} value={formData.extNumber} onChange={e => setFormData({ ...formData, extNumber: e.target.value })} /></div>
               <div>
-                <label htmlFor="position" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Position</label>
-                <input id="position" required type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.position} onChange={(e) => setFormData({ ...formData, position: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="extNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Ext Number</label>
-                <input id="extNumber" type="text" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.extNumber} onChange={(e) => setFormData({ ...formData, extNumber: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="department" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Department</label>
-                <select
-                  id="department"
-                  required
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
-                  value={formData.departmentId || ''}
-                  onChange={(e) => {
-                    const selectedDept = departments.find(d => d.id === e.target.value);
-                    setFormData({
-                      ...formData,
-                      departmentId: e.target.value,
-                      department: selectedDept ? selectedDept.name : ''
-                    });
-                  }}
-                >
+                <label htmlFor="a-dept" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Department</label>
+                <select id="a-dept" required title="Select Department" className={inputCls} value={formData.departmentId || ''} onChange={e => { const d = departments.find(x => x.id === e.target.value); setFormData({ ...formData, departmentId: e.target.value, department: d ? d.name : '' }); }}>
                   <option value="">Select Department</option>
-                  {departments.map(dep => (
-                    <option key={dep.id} value={dep.id}>{dep.name}</option>
-                  ))}
-                  {/* Fallback for legacy data */}
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   {formData.department && !formData.departmentId && <option value="" disabled>Current: {formData.department}</option>}
                 </select>
               </div>
-              <div>
-                <label htmlFor="section" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Section</label>
-                <input id="section" type="text" title="Enter Section" placeholder="e.g. Accounts" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.section} onChange={(e) => setFormData({ ...formData, section: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="officeNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Office No.</label>
-                <input id="officeNumber" type="text" title="Enter Office Number" placeholder="e.g. 101" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.officeNumber} onChange={(e) => setFormData({ ...formData, officeNumber: e.target.value })} />
-              </div>
+              <div><label htmlFor="a-sec" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Section</label><input id="a-sec" type="text" placeholder="e.g. Accounts" className={inputCls} value={formData.section} onChange={e => setFormData({ ...formData, section: e.target.value })} /></div>
+              <div><label htmlFor="a-office" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Office No.</label><input id="a-office" type="text" placeholder="e.g. 101" className={inputCls} value={formData.officeNumber} onChange={e => setFormData({ ...formData, officeNumber: e.target.value })} /></div>
             </div>
 
-            <h4 className="text-sm font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 mt-8">
-              <span className="w-4 h-px bg-blue-600"></span>
-              Hardware Information
-            </h4>
+            <h4 className="text-sm font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2 mt-6"><span className="w-4 h-px bg-blue-600"></span>Hardware Information</h4>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="assetType" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Asset Type</label>
-                <select id="assetType" title="Select Asset Type" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}>
+                <label htmlFor="a-type" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Asset Type</label>
+                <select id="a-type" title="Select Asset Type" className={inputCls} value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
                   <option value="">Select Type</option>
-                  <option value="Laptop">Laptop</option>
-                  <option value="Desktop">Desktop</option>
-                  <option value="Printer">Printer</option>
-                  <option value="Scanner">Scanner</option>
-                  <option value="Tablet">Tablet</option>
-                  <option value="Mobile Phone">Mobile Phone</option>
+                  <option value="Laptop">Laptop</option><option value="Desktop">Desktop</option><option value="Printer">Printer</option><option value="Scanner">Scanner</option><option value="Tablet">Tablet</option><option value="Mobile Phone">Mobile Phone</option>
                 </select>
               </div>
+              <div><label htmlFor="a-brand" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Brand / Make</label><input id="a-brand" type="text" placeholder="e.g. HP, Dell, Apple" className={inputCls} value={formData.brand || ''} onChange={e => setFormData({ ...formData, brand: e.target.value })} /></div>
+              <div><label htmlFor="a-sn" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Manufacturer Serial No.</label><input id="a-sn" type="text" placeholder="e.g. 5CD20..." className={inputCls} value={formData.serialNumber} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} /></div>
               <div>
-                <label htmlFor="brand" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Brand / Make</label>
-                <input id="brand" type="text" placeholder="e.g. HP, Dell, Apple" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.brand || ''} onChange={(e) => setFormData({ ...formData, brand: e.target.value })} />
+                <label htmlFor="a-sr" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">SR Number (Internal)</label>
+                <input id="a-sr" disabled={!asset} readOnly={!asset} type="text" title="Internal SR Number" placeholder="System Generated" className={`${inputCls} ${!asset ? 'cursor-not-allowed italic text-slate-400 bg-slate-100 dark:bg-slate-900' : ''}`} value={formData.srNumber} onChange={e => setFormData({ ...formData, srNumber: e.target.value })} />
               </div>
-              <div className="col-span-2 md:col-span-1 border-t md:border-t-0 border-slate-100 mt-4 md:mt-0 pt-4 md:pt-0">
-                <label htmlFor="serialNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Manufacturer Serial No.</label>
-                <input id="serialNumber" type="text" title="Enter Serial Number" placeholder="e.g. 5CD20..." className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.serialNumber} onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })} />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <label htmlFor="srNumber" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">SR Number (Internal)</label>
-                <input
-                  id="srNumber"
-                  disabled={!asset}
-                  readOnly={!asset}
-                  type="text"
-                  title="Internal SR Number"
-                  placeholder="System Generated"
-                  className={`w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm outline-none dark:text-white ${!asset ? 'cursor-not-allowed italic text-slate-400' : ''}`}
-                  value={formData.srNumber}
-                  onChange={(e) => setFormData({ ...formData, srNumber: e.target.value })}
-                />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <label htmlFor="purchaseDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Date of Purchase</label>
-                <input id="purchaseDate" type="date" title="Select Purchase Date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.purchaseDate || ''} onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })} />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <label htmlFor="warrantyExpiry" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry (Auto)</label>
-                <input id="warrantyExpiry" readOnly type="date" className="w-full bg-gray-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm outline-none dark:text-slate-400 cursor-not-allowed" value={formData.warrantyExpiry || ''} />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <label htmlFor="disposalDate" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Disposal Date (Auto)</label>
-                <input id="disposalDate" readOnly type="date" className="w-full bg-gray-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm outline-none dark:text-slate-400 cursor-not-allowed" value={formData.disposalDate || ''} />
-              </div>
+              <div><label htmlFor="a-pd" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Date of Purchase</label><input id="a-pd" type="date" title="Select Purchase Date" className={inputCls} value={formData.purchaseDate || ''} onChange={e => setFormData({ ...formData, purchaseDate: e.target.value })} /></div>
+              <div><label htmlFor="a-we" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Warranty Expiry (Auto)</label><input id="a-we" readOnly type="date" className={`${inputCls} bg-gray-100 dark:bg-slate-900 cursor-not-allowed dark:text-slate-400`} value={formData.warrantyExpiry || ''} /></div>
+              <div><label htmlFor="a-dd" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Disposal Date (Auto)</label><input id="a-dd" readOnly type="date" className={`${inputCls} bg-gray-100 dark:bg-slate-900 cursor-not-allowed dark:text-slate-400`} value={formData.disposalDate || ''} /></div>
               <div>
-                <label htmlFor="currentStatus" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Current Status</label>
-                <select id="currentStatus" title="Select Current Status" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none dark:text-white" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}>
-                  <option value="Active">Active</option>
-                  <option value="Under Repair">Under Repair</option>
-                  <option value="Disposed">Disposed</option>
+                <label htmlFor="a-status" className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Current Status</label>
+                <select id="a-status" title="Select Status" className={inputCls} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as any })}>
+                  <option value="Active">Active</option><option value="Under Repair">Under Repair</option><option value="Disposed">Disposed</option>
                 </select>
               </div>
             </div>
           </div>
-
           <div className="flex gap-3 mt-8">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-            <button type="submit" className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-lg">Save Asset Data</button>
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 transition-colors">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-lg disabled:opacity-60 disabled:cursor-not-allowed">
+              {isSubmitting ? 'Saving...' : 'Save Asset Data'}
+            </button>
           </div>
         </form>
       </div>
@@ -658,224 +473,97 @@ interface ImportModalProps {
 }
 
 const ImportModal: React.FC<ImportModalProps> = ({ user, onClose, onSave }) => {
+  const { showToast } = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importStats, setImportStats] = useState<{ imported: number, skipped: number } | null>(null);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
-    }
-  };
+  const [importStats, setImportStats] = useState<{ imported: number; skipped: number } | null>(null);
 
   const handleImport = async () => {
     if (!file) return;
-
     setIsUploading(true);
     setError(null);
-
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const headers = (results.meta?.fields || [])
-            .map(field => (field || '').toString().trim())
-            .filter(Boolean);
-          const normalizedHeaders = new Set(
-            headers.map(header => header.toLowerCase().replace(/[\s_-]/g, ''))
-          );
-          if (!normalizedHeaders.has('employeename') || !normalizedHeaders.has('serialnumber')) {
-            throw new Error('Missing required CSV headers. Expected: Employee Name, Serial Number.');
-          }
-
+          const headers = (results.meta?.fields || []).map(f => f.trim()).filter(Boolean);
+          const normalized = new Set(headers.map(h => h.toLowerCase().replace(/[\s_-]/g, '')));
+          if (!normalized.has('employeename') || !normalized.has('serialnumber')) throw new Error('Missing required CSV headers: Employee Name, Serial Number.');
           const rawData = results.data as any[];
-
-          // 1. Fetch current assets to check for duplicates
           const currentAssets = await storage.getAssets();
-          const existingSerials = new Set(
-            currentAssets
-              .map(a => a.serialNumber?.trim().toLowerCase())
-              .filter(sn => sn && sn !== '')
-          );
-
+          const existingSerials = new Set(currentAssets.map(a => a.serialNumber?.trim().toLowerCase()).filter(Boolean));
           let skippedCount = 0;
-
-          // 2. Map and Filter CSV columns
-          const assetsToImport: Partial<Asset>[] = rawData.map(row => {
-            const employeeName = (row.EmployeeName || row.employeeName || row['Employee Name'] || '').toString().trim();
+          const seen = new Set<string>();
+          const toImport: Partial<Asset>[] = rawData.map(row => {
+            const name = (row.EmployeeName || row.employeeName || row['Employee Name'] || '').toString().trim();
             const serial = (row.SerialNumber || row.serialNumber || row['Serial Number'] || '').toString().trim();
-            const normalizedSerial = serial.toLowerCase();
+            const ns = serial.toLowerCase();
             const statusRaw = (row.Status || row.status || 'Active').toString().trim().toLowerCase();
-            const normalizedStatus: Asset['status'] =
-              statusRaw === 'under repair' || statusRaw === 'repair' || statusRaw === 'maintenance'
-                ? 'Under Repair'
-                : statusRaw === 'disposed' || statusRaw === 'dispose'
-                  ? 'Disposed'
-                  : 'Active';
-
-            if (!employeeName || !serial) {
-              skippedCount++;
-              return null;
-            }
-
-            // Check if duplicate
-            if (normalizedSerial && existingSerials.has(normalizedSerial)) {
-              skippedCount++;
-              return null;
-            }
-            existingSerials.add(normalizedSerial);
-
-            return {
-              employeeName,
-              type: row.AssetType || row.type || row['Asset Type'] || 'Other',
-              serialNumber: serial,
-              extNumber: row.ExtNumber || row.extNumber || row['Ext Number'] || '',
-              officeNumber: row.OfficeNumber || row.officeNumber || row['Office Number'] || '',
-              position: row.Position || row.position || '',
-              department: row.Department || row.department || '',
-              section: row.Section || row.section || '',
-              brand: row.Brand || row.brand || '',
-              purchaseDate: row.PurchaseDate || row.purchaseDate || row['Purchase Date'] || null,
-              warrantyExpiry: row.WarrantyExpiry || row.warrantyExpiry || row['Warranty Expiry'] || null,
-              disposalDate: row.DisposalDate || row.disposalDate || row['Disposal Date'] || null,
-              status: normalizedStatus,
-              createdAt: new Date().toISOString()
-            };
-          }).filter(a => a !== null) as Partial<Asset>[];
-
-          if (assetsToImport.length === 0) {
-            throw new Error('No valid asset data found. Ensure required fields are present and serial numbers are unique.');
-          }
-
-          if (assetsToImport.length > 0) {
-            const serverStats = await storage.bulkAddAssets(assetsToImport);
-            skippedCount += serverStats.skipped;
-
-            await storage.logActivity(
-              user.id,
-              user.username,
-              'IMPORT_ASSETS',
-              `Imported ${serverStats.imported} assets, skipped ${skippedCount} rows.`
-            );
-
-            setImportStats({ imported: serverStats.imported, skipped: skippedCount });
-          } else {
-            setImportStats({ imported: 0, skipped: skippedCount });
-          }
-
+            const status: Asset['status'] = statusRaw === 'under repair' || statusRaw === 'repair' ? 'Under Repair' : statusRaw === 'disposed' ? 'Disposed' : 'Active';
+            if (!name || !serial || existingSerials.has(ns) || seen.has(ns)) { skippedCount++; return null; }
+            seen.add(ns);
+            return { employeeName: name, type: row.AssetType || row['Asset Type'] || 'Other', serialNumber: serial, extNumber: row.ExtNumber || row['Ext Number'] || '', officeNumber: row.OfficeNumber || row['Office Number'] || '', position: row.Position || row.position || '', department: row.Department || row.department || '', section: row.Section || row.section || '', brand: row.Brand || row.brand || '', purchaseDate: row.PurchaseDate || row['Purchase Date'] || null, warrantyExpiry: row.WarrantyExpiry || row['Warranty Expiry'] || null, disposalDate: row.DisposalDate || row['Disposal Date'] || null, status, createdAt: new Date().toISOString() };
+          }).filter(Boolean) as Partial<Asset>[];
+          if (toImport.length === 0) throw new Error('No valid asset rows found. Check required fields and serial number uniqueness.');
+          const serverStats = await storage.bulkAddAssets(toImport);
+          skippedCount += serverStats.skipped;
+          await storage.logActivity(user.id, user.username, 'IMPORT_ASSETS', `Imported ${serverStats.imported} assets, skipped ${skippedCount} rows.`);
+          setImportStats({ imported: serverStats.imported, skipped: skippedCount });
           setIsUploading(false);
-
-          // Wait a moment for the user to see the success message before closing or reloading
-          setTimeout(() => {
-            onSave();
-          }, 2500);
+          setTimeout(() => { showToast(`Imported ${serverStats.imported} assets.`, 'success'); onSave(); }, 2000);
         } catch (err: any) {
-          setError(err.message || 'Failed to import assets');
+          setError(err.message || 'Import failed.');
           setIsUploading(false);
         }
       },
-      error: (err) => {
-        setError(err.message || 'Failed to parse CSV file');
-        setIsUploading(false);
-      }
+      error: (err) => { setError(err.message || 'Failed to parse CSV.'); setIsUploading(false); }
     });
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 bg-slate-950/60 backdrop-blur-sm overflow-y-auto pt-10 md:pt-20" role="dialog" aria-modal="true">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg my-8 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
           <h3 className="text-lg font-bold dark:text-white">Import Assets via CSV</h3>
-          <button onClick={onClose} aria-label="Close" title="Close Import Modal" className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
         <div className="p-6 space-y-4">
           <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 rounded-xl">
             <h4 className="text-sm font-bold text-blue-700 dark:text-blue-400 mb-1">CSV Template Guide</h4>
-            <p className="text-xs text-blue-600 dark:text-blue-400/80 leading-relaxed">
-              Required headers: <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Employee Name</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Serial Number</code>.
-              Optional: <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Asset Type</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Department</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Purchase Date</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Warranty Expiry</code>, <code className="bg-white/50 dark:bg-black/20 px-1 rounded">Disposal Date</code>.
-            </p>
-            <p className="text-[10px] text-blue-500 mt-2 font-medium">Internal SR numbers will be automatically assigned upon arrival.</p>
+            <p className="text-xs text-blue-600 dark:text-blue-400/80 leading-relaxed">Required: <code className="bg-white/50 px-1 rounded">Employee Name</code>, <code className="bg-white/50 px-1 rounded">Serial Number</code>. Optional: Asset Type, Department, Purchase Date, Warranty Expiry, Disposal Date.</p>
           </div>
-
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-500 uppercase">Select CSV File</label>
             <div className="relative group">
-              <input
-                type="file"
-                accept=".csv"
-                title="Upload CSV File"
-                aria-label="Upload CSV File"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              />
+              <input type="file" accept=".csv" title="Upload CSV File" aria-label="Upload CSV File" onChange={e => { if (e.target.files?.[0]) { setFile(e.target.files[0]); setError(null); } }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
               <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${file ? 'border-green-500 bg-green-50 dark:bg-green-900/10' : 'border-slate-200 dark:border-slate-800 group-hover:border-blue-500 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10'}`}>
                 <ICONS.Upload className={`w-8 h-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-slate-400'}`} />
-                <p className="text-sm font-medium dark:text-slate-300">
-                  {file ? file.name : 'Click to browse or drag and drop CSV file'}
-                </p>
+                <p className="text-sm font-medium dark:text-slate-300">{file ? file.name : 'Click to browse or drag CSV file'}</p>
                 <p className="text-[10px] text-slate-400 mt-1">Accepts .csv files only</p>
               </div>
             </div>
           </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-lg text-xs text-red-600 dark:text-red-400">
-              {error}
-            </div>
-          )}
-
+          {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-lg text-xs text-red-600 dark:text-red-400">{error}</div>}
           {importStats && (
             <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/30 rounded-xl space-y-2">
               <div className="flex items-center gap-2 text-green-700 dark:text-green-400 font-bold text-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                 Import Complete
               </div>
               <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg">
-                  <span className="text-slate-500 block">New Assets</span>
-                  <span className="text-lg font-bold text-green-600">{importStats.imported}</span>
-                </div>
-                <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg">
-                  <span className="text-slate-500 block">Skipped Dilly-Dally</span>
-                  <span className="text-lg font-bold text-amber-600">{importStats.skipped}</span>
-                </div>
+                <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg"><span className="text-slate-500 block">New Assets</span><span className="text-lg font-bold text-green-600">{importStats.imported}</span></div>
+                <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg"><span className="text-slate-500 block">Skipped Rows</span><span className="text-lg font-bold text-amber-600">{importStats.skipped}</span></div>
               </div>
-              <p className="text-[10px] text-green-600/70 italic text-center pt-1">Refreshing your registry...</p>
             </div>
           )}
-
           <div className="flex gap-3 pt-4">
-            <button
-              onClick={onClose}
-              disabled={isUploading}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={!file || isUploading}
-              className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isUploading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Importing...
-                </>
-              ) : 'Start Import'}
+            <button type="button" onClick={onClose} disabled={isUploading} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 transition-colors disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={handleImport} disabled={!file || isUploading} className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {isUploading ? (<><svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Importing...</>) : 'Start Import'}
             </button>
           </div>
         </div>

@@ -8,7 +8,6 @@ import PageHeader from '../components/ui/PageHeader';
 import SectionCard from '../components/ui/SectionCard';
 import TrackingButton from '../components/ui/TrackingButton';
 import { storage, STORES } from '../services/storageService';
-import { STREAMLIT_EMBED_URL } from '../services/streamlitConfig';
 import { trackingService } from '../services/trackingService';
 import {
   ActivityLog,
@@ -137,6 +136,7 @@ const Dashboard: React.FC = () => {
         value: filteredInventory.length,
         description: 'Tracked stock records',
         tone: 'blue',
+        href: '/inventory',
       },
       {
         key: 'low_stock',
@@ -144,6 +144,7 @@ const Dashboard: React.FC = () => {
         value: lowStock,
         description: 'Needs replenishment',
         tone: 'amber',
+        href: '/inventory',
       },
       {
         key: 'out_of_stock',
@@ -151,6 +152,7 @@ const Dashboard: React.FC = () => {
         value: outOfStock,
         description: 'Requires urgent action',
         tone: 'red',
+        href: '/inventory',
       },
       {
         key: 'assets_assigned',
@@ -158,6 +160,7 @@ const Dashboard: React.FC = () => {
         value: filteredAssets.length,
         description: 'Assigned to personnel',
         tone: 'indigo',
+        href: '/assets',
       },
       {
         key: 'operational',
@@ -165,6 +168,7 @@ const Dashboard: React.FC = () => {
         value: operationalAssets,
         description: 'Assets in active state',
         tone: 'green',
+        href: '/assets',
       },
     ];
   }, [filteredAssets, filteredInventory]);
@@ -530,7 +534,7 @@ const Dashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className={TABLE_CLASSES.body}>
-                    {recentActivity.slice(0, 5).map((log) => (
+                    {recentActivity.map((log) => (
                       <tr key={log.id} className={TABLE_CLASSES.row}>
                         <td className="px-4 py-3 font-medium text-civic-text">{log.action}</td>
                         <td className="px-4 py-3 text-civic-muted">{log.username}</td>
@@ -552,25 +556,6 @@ const Dashboard: React.FC = () => {
               </div>
             </SectionCard>
 
-            <section className="mt-8">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold dark:text-white">Strategic Analytics</h2>
-                <span className="text-xs bg-civic-primary/10 text-civic-primary px-2 py-1 rounded-full font-bold uppercase tracking-wider">Streamlit Powered</span>
-              </div>
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm" style={{ height: '600px' }}>
-                <iframe 
-                  src={STREAMLIT_EMBED_URL} 
-                  width="100%" 
-                  height="100%" 
-                  frameBorder="0" 
-                  title="Asset Analytics Dashboard"
-                  className="w-full h-full"
-                ></iframe>
-              </div>
-              <p className="mt-3 text-xs text-center text-slate-400">
-                Note: This dashboard uses the configured Streamlit URL. Set VITE_STREAMLIT_URL when deploying a different Streamlit app.
-              </p>
-            </section>
           </div>
 
         </>

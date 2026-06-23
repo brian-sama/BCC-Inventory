@@ -10,11 +10,11 @@ export interface User {
   id: string;
   username: string;
   fullName: string;
-  password?: string;
   role: UserRole | string;
   departmentId?: string;
   departmentName?: string;
   lastLogin?: string;
+  isActive?: boolean;
 }
 
 export interface InventoryItem {
@@ -76,6 +76,7 @@ export interface KpiMetric {
   value: number;
   description: string;
   tone: 'blue' | 'amber' | 'red' | 'indigo' | 'green';
+  href?: string;
 }
 
 export interface DashboardFilterState {

@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const http = require('http');
 const db = require('./db');
 require('dotenv').config();
 
@@ -27,6 +28,11 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || process.env.FRONTEND_ORIGIN
 const memorySessions = new Map();
 let useMemorySessions = false;
 let assetsColumnsCache = null;
+let io = null;
+
+function emitEvent(event, data) {
+    if (io) io.emit(event, data);
+}
 
 app.set('trust proxy', 1);
 
@@ -190,13 +196,41 @@ async function deactivateSession(sessionId) {
 }
 
 
-// Audit Log Helper
+// Audit Log Helper — writes to audit_logs with SHA-256 hash chain for tamper detection
 async function logAction(userId, username, action, details) {
     try {
-        await db.query(
-            'INSERT INTO audit_logs (user_id, user_name, action, details) VALUES ($1, $2, $3, $4)',
-            [userId, username, action, details]
-        );
+        const timestamp = new Date().toISOString();
+        const payload = { userId, username, action, details, timestamp };
+
+        // Fetch previous hash to form the chain (genesis hash is 64 zeros)
+        let prevHash = '0'.repeat(64);
+        try {
+            const lastRow = await db.query(
+                'SELECT hash FROM audit_logs WHERE hash IS NOT NULL ORDER BY id DESC LIMIT 1'
+            );
+            if (lastRow.rows.length > 0 && lastRow.rows[0].hash) prevHash = lastRow.rows[0].hash;
+        } catch (_) { /* hash column may not exist yet — chain starts fresh */ }
+
+        const currentHash = crypto.createHash('sha256')
+            .update(prevHash + JSON.stringify(payload))
+            .digest('hex');
+
+        try {
+            await db.query(
+                'INSERT INTO audit_logs (user_id, user_name, action, details, hash) VALUES ($1, $2, $3, $4, $5)',
+                [userId, username, action, details, currentHash]
+            );
+        } catch (insertErr) {
+            // Gracefully degrade if hash column doesn't exist in DB yet
+            if (insertErr.code === '42703') {
+                await db.query(
+                    'INSERT INTO audit_logs (user_id, user_name, action, details) VALUES ($1, $2, $3, $4)',
+                    [userId, username, action, details]
+                );
+            } else {
+                throw insertErr;
+            }
+        }
         console.log(`Audit Log: ${username} - ${action}`);
     } catch (err) {
         console.error('Failed to log action:', err.message);
@@ -308,6 +342,20 @@ async function authenticateSession(req, res, next) {
     } catch (error) {
         next(error);
     }
+}
+
+// Role-based access control middleware factory
+function requireRole(...allowedRoles) {
+    return (req, res, next) => {
+        if (!req.user) return res.status(401).json({ success: false, error: 'Not authenticated' });
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: `Access denied. Required: ${allowedRoles.join(' or ')}`
+            });
+        }
+        next();
+    };
 }
 
 // Middleware
@@ -483,29 +531,43 @@ app.get('/api/auth/me', authenticateSession, async (req, res) => {
 });
 
 app.get('/api/inventory', authenticateSession, async (req, res) => {
-    const { search, category } = req.query;
+    const { search, category, page = 1, limit = 25, sort = 'created_at', order = 'DESC' } = req.query;
     try {
-        let queryText = 'SELECT * FROM inventory WHERE status = $1';
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 25));
+        const offset = (pageNum - 1) * limitNum;
+        const ALLOWED_SORT = new Set(['item_name', 'quantity', 'unit_cost', 'created_at', 'category_id']);
+        const sortCol = ALLOWED_SORT.has(sort) ? sort : 'created_at';
+        const sortDir = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+        let baseWhere = 'WHERE status = $1';
         let queryParams = ['active'];
 
         if (search) {
             queryParams.push(`%${search}%`);
-            queryText += ` AND (item_name ILIKE $${queryParams.length} OR description ILIKE $${queryParams.length})`;
+            baseWhere += ` AND (item_name ILIKE $${queryParams.length} OR description ILIKE $${queryParams.length})`;
         }
         if (category) {
             queryParams.push(category);
-            queryText += ` AND category_id = $${queryParams.length}`;
+            baseWhere += ` AND category_id = $${queryParams.length}`;
         }
 
-        queryText += ' ORDER BY created_at DESC';
-        const result = await db.query(queryText, queryParams);
-        res.json({ success: true, items: result.rows });
+        const countResult = await db.query(`SELECT COUNT(*) FROM inventory ${baseWhere}`, queryParams);
+        const total = parseInt(countResult.rows[0].count);
+
+        const dataParams = [...queryParams, limitNum, offset];
+        const itemsResult = await db.query(
+            `SELECT * FROM inventory ${baseWhere} ORDER BY ${sortCol} ${sortDir} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+            dataParams
+        );
+
+        res.json({ success: true, items: itemsResult.rows, total, page: pageNum, totalPages: Math.ceil(total / limitNum) });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.post('/api/inventory', authenticateSession, async (req, res) => {
+app.post('/api/inventory', authenticateSession, requireRole('Admin', 'Head Administrator', 'Asset Adder'), async (req, res) => {
     const itemData = req.body;
     try {
         const itemCode = itemData.serialNumber || itemData.serial || `ITEM-${Date.now()}`;
@@ -528,6 +590,7 @@ app.post('/api/inventory', authenticateSession, async (req, res) => {
         const newItemId = result.rows[0].id;
 
         await logAction(req.user.userId, req.user.username, 'ADD_INVENTORY', `Added inventory item: ${itemData.name || itemCode}`);
+        emitEvent('inventory:added', { id: newItemId, name: itemData.name });
 
         res.json({ success: true, itemId: newItemId, message: 'Item added successfully!' });
     } catch (error) {
@@ -536,26 +599,39 @@ app.post('/api/inventory', authenticateSession, async (req, res) => {
 });
 
 app.get('/api/assets', authenticateSession, async (req, res) => {
-    const { search, department, assetStatus } = req.query;
+    const { search, department, assetStatus, page = 1, limit = 25, sort = 'created_at', order = 'DESC' } = req.query;
     try {
-        let queryText = 'SELECT * FROM assets WHERE 1=1';
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 25));
+        const offset = (pageNum - 1) * limitNum;
+        const ALLOWED_SORT = new Set(['asset_name', 'employee_name', 'department', 'condition_status', 'created_at', 'purchase_date']);
+        const sortCol = ALLOWED_SORT.has(sort) ? sort : 'created_at';
+        const sortDir = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+        let baseWhere = 'WHERE 1=1';
         let queryParams = [];
 
         if (search) {
             queryParams.push(`%${search}%`);
-            queryText += ` AND (employee_name ILIKE $${queryParams.length} OR serial_number ILIKE $${queryParams.length})`;
+            baseWhere += ` AND (employee_name ILIKE $${queryParams.length} OR serial_number ILIKE $${queryParams.length})`;
         }
         if (department) {
             queryParams.push(department);
-            queryText += ` AND department = $${queryParams.length}`;
+            baseWhere += ` AND department = $${queryParams.length}`;
         }
         if (assetStatus) {
             queryParams.push(assetStatus.toLowerCase());
-            queryText += ` AND condition_status = $${queryParams.length}`;
+            baseWhere += ` AND condition_status = $${queryParams.length}`;
         }
 
-        queryText += ' ORDER BY created_at DESC';
-        const result = await db.query(queryText, queryParams);
+        const countResult = await db.query(`SELECT COUNT(*) FROM assets ${baseWhere}`, queryParams);
+        const total = parseInt(countResult.rows[0].count);
+
+        const dataParams = [...queryParams, limitNum, offset];
+        const result = await db.query(
+            `SELECT * FROM assets ${baseWhere} ORDER BY ${sortCol} ${sortDir} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+            dataParams
+        );
 
         const assets = result.rows.map(asset => ({
             ...asset,
@@ -573,7 +649,7 @@ app.get('/api/assets', authenticateSession, async (req, res) => {
             departmentId: asset.department_id,
             warrantyExpiry: asset.warranty_expiry
         }));
-        res.json({ success: true, assets });
+        res.json({ success: true, assets, total, page: pageNum, totalPages: Math.ceil(total / limitNum) });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -633,7 +709,7 @@ app.get('/api/assets/repair-status/:serial', authenticateSession, async (req, re
     }
 });
 
-app.post('/api/assets', authenticateSession, async (req, res) => {
+app.post('/api/assets', authenticateSession, requireRole('Admin', 'Head Administrator', 'Asset Adder'), async (req, res) => {
     const assetData = req.body;
     try {
         if (assetData.serialNumber) {
@@ -710,6 +786,7 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
         const newAssetId = result.rows[0].id;
 
         await logAction(req.user.userId, req.user.username, 'ADD_ASSET', `Registered asset ${generatedSR} for ${assetData.employeeName || 'unknown employee'}`);
+        emitEvent('assets:added', { id: newAssetId, srNumber: generatedSR });
 
         res.json({ success: true, message: 'Asset registered successfully!', srNumber: generatedSR, id: newAssetId });
     } catch (error) {
@@ -717,11 +794,12 @@ app.post('/api/assets', authenticateSession, async (req, res) => {
     }
 });
 
-app.delete('/api/assets/:id', authenticateSession, async (req, res) => {
+app.delete('/api/assets/:id', authenticateSession, requireRole('Admin', 'Head Administrator'), async (req, res) => {
     try {
         await db.query('DELETE FROM assets WHERE id = $1', [req.params.id]);
 
         await logAction(req.user.userId, req.user.username, 'DELETE_ASSET', `Deleted asset id ${req.params.id}`);
+        emitEvent('assets:deleted', { id: req.params.id });
 
         res.json({ success: true, message: 'Asset deleted successfully' });
     } catch (error) {
@@ -787,7 +865,38 @@ app.get('/api/audit-logs', authenticateSession, async (req, res) => {
     }
 });
 
-app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
+app.get('/api/audit-logs/verify', authenticateSession, requireRole('Head Administrator', 'Admin'), async (req, res) => {
+    try {
+        const result = await db.query('SELECT id, user_id, user_name, action, details, timestamp, hash FROM audit_logs ORDER BY id ASC');
+        const rows = result.rows;
+
+        if (rows.length === 0) return res.json({ success: true, valid: true, message: 'No log entries to verify.' });
+
+        let prevHash = '0'.repeat(64);
+        let firstBrokenId = null;
+
+        for (const row of rows) {
+            if (!row.hash) continue; // skip rows before hash chain was enabled
+            const payload = { userId: row.user_id, username: row.user_name, action: row.action, details: row.details, timestamp: new Date(row.timestamp).toISOString() };
+            const expectedHash = crypto.createHash('sha256').update(prevHash + JSON.stringify(payload)).digest('hex');
+            if (expectedHash !== row.hash) {
+                firstBrokenId = row.id;
+                break;
+            }
+            prevHash = row.hash;
+        }
+
+        if (firstBrokenId) {
+            res.json({ success: true, valid: false, message: `Chain broken at log entry id ${firstBrokenId}` });
+        } else {
+            res.json({ success: true, valid: true, message: `All ${rows.filter(r => r.hash).length} hashed log entries verified.` });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/assets/bulk', authenticateSession, requireRole('Admin', 'Head Administrator', 'Asset Adder'), async (req, res) => {
     const assetsData = req.body;
     if (!Array.isArray(assetsData)) {
         return res.status(400).json({ success: false, error: 'Data must be an array of assets' });
@@ -919,6 +1028,7 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
         const result = await db.query(queryText, params);
 
         await logAction(req.user.userId, req.user.username, 'IMPORT_ASSETS', `Imported ${result.rows.length} assets, skipped ${skippedCount} rows.`);
+        emitEvent('assets:bulk_added', { count: result.rows.length });
 
         res.json({ success: true, message: `Successfully imported ${result.rows.length} assets`, count: result.rows.length, skipped: skippedCount });
     } catch (error) {
@@ -926,7 +1036,7 @@ app.post('/api/assets/bulk', authenticateSession, async (req, res) => {
     }
 });
 
-app.put('/api/assets', authenticateSession, async (req, res) => {
+app.put('/api/assets', authenticateSession, requireRole('Admin', 'Head Administrator'), async (req, res) => {
     const assetData = req.body;
     try {
         let purchaseDateVal = null;
@@ -981,13 +1091,14 @@ app.put('/api/assets', authenticateSession, async (req, res) => {
         await db.query(queryText, params);
 
         await logAction(req.user.userId, req.user.username, 'UPDATE_ASSET', `Updated asset id ${assetData.id}`);
+        emitEvent('assets:updated', { id: assetData.id });
         res.json({ success: true, message: 'Asset updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.put('/api/inventory', authenticateSession, async (req, res) => {
+app.put('/api/inventory', authenticateSession, requireRole('Admin', 'Head Administrator'), async (req, res) => {
     const itemData = req.body;
     try {
         const queryText = `
@@ -1008,16 +1119,18 @@ app.put('/api/inventory', authenticateSession, async (req, res) => {
         ]);
 
         await logAction(req.user.userId, req.user.username, 'UPDATE_INVENTORY', `Updated inventory item: ${itemData.name || itemData.id}`);
+        emitEvent('inventory:updated', { id: itemData.id, name: itemData.name });
         res.json({ success: true, message: 'Item updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.delete('/api/inventory/:id', authenticateSession, async (req, res) => {
+app.delete('/api/inventory/:id', authenticateSession, requireRole('Admin', 'Head Administrator'), async (req, res) => {
     try {
         await db.query('UPDATE inventory SET status = $1 WHERE id = $2', ['inactive', req.params.id]);
         await logAction(req.user.userId, req.user.username, 'DELETE_INVENTORY', `Deleted inventory item id ${req.params.id}`);
+        emitEvent('inventory:deleted', { id: req.params.id });
         res.json({ success: true, message: 'Inventory item deleted successfully' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1087,7 +1200,7 @@ app.get('/api/users', authenticateSession, async (req, res) => {
     }
 });
 
-app.post('/api/users', authenticateSession, async (req, res) => {
+app.post('/api/users', authenticateSession, requireRole('Head Administrator'), async (req, res) => {
     const userData = req.body;
     try {
         if (!userData.username || !userData.fullName) {
@@ -1114,7 +1227,20 @@ app.post('/api/users', authenticateSession, async (req, res) => {
     }
 });
 
-app.delete('/api/users/:id', authenticateSession, async (req, res) => {
+app.put('/api/users/:id', authenticateSession, requireRole('Head Administrator'), async (req, res) => {
+    const userData = req.body;
+    try {
+        await db.query(
+            'UPDATE users SET username = $1, name = $2, role = $3 WHERE id = $4',
+            [userData.username, userData.fullName, userData.role, req.params.id]
+        );
+        res.json({ success: true, message: 'User updated successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/users/:id', authenticateSession, requireRole('Head Administrator'), async (req, res) => {
     try {
         await db.query('UPDATE users SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ success: true, message: 'User deactivated successfully' });
@@ -1161,7 +1287,62 @@ setInterval(() => {
 
 async function startServer() {
     await initializeApp();
-    app.listen(PORT, () => {
+
+    const httpServer = http.createServer(app);
+
+    // Real-time Socket.io (gracefully skipped if package not installed)
+    try {
+        const { Server } = require('socket.io');
+        io = new Server(httpServer, {
+            cors: { origin: ALLOWED_ORIGINS, credentials: true }
+        });
+        io.on('connection', socket => {
+            console.log(`Socket client connected: ${socket.id}`);
+            socket.on('disconnect', () => console.log(`Socket client disconnected: ${socket.id}`));
+        });
+        console.log('✅ Real-time (Socket.io) enabled');
+    } catch (_) {
+        console.log('ℹ️  Socket.io not available — real-time push disabled');
+    }
+
+    // Low-stock email alerts (requires ALERT_EMAIL + SMTP_HOST in .env)
+    if (process.env.ALERT_EMAIL && process.env.SMTP_HOST) {
+        try {
+            const cron = require('node-cron');
+            const nodemailer = require('nodemailer');
+            const transporter = nodemailer.createTransport({
+                host: process.env.SMTP_HOST,
+                port: parseInt(process.env.SMTP_PORT || '587'),
+                secure: process.env.SMTP_SECURE === 'true',
+                auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+            });
+
+            cron.schedule('0 8 * * *', async () => {
+                try {
+                    const result = await db.query(
+                        "SELECT item_name, quantity, reorder_level FROM inventory WHERE quantity <= reorder_level AND status = 'active' ORDER BY quantity ASC"
+                    );
+                    if (result.rows.length === 0) return;
+
+                    const rows = result.rows.map(r => `  • ${r.item_name}: ${r.quantity} remaining (reorder at ${r.reorder_level})`).join('\n');
+                    await transporter.sendMail({
+                        from: `"BCC SIMS" <${process.env.SMTP_USER}>`,
+                        to: process.env.ALERT_EMAIL,
+                        subject: `⚠️ Low Stock Alert — ${result.rows.length} item(s) need restocking`,
+                        text: `The following inventory items are at or below reorder level:\n\n${rows}\n\nPlease log in to BCC SIMS to take action.`
+                    });
+                    console.log(`Low-stock alert sent for ${result.rows.length} item(s)`);
+                } catch (err) {
+                    console.error('Low-stock cron error:', err.message);
+                }
+            });
+            console.log('✅ Low-stock email alerts scheduled (daily 08:00)');
+        } catch (_) {
+            console.log('ℹ️  node-cron / nodemailer not available — email alerts disabled');
+        }
+    }
+
+    httpServer.listen(PORT, () => {
         console.log(`🚀 Server running on: http://localhost:${PORT}`);
     });
 }

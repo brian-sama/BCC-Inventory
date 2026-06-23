@@ -26,7 +26,6 @@ class StorageService {
   async init(): Promise<void> {
     try {
       await fetch(`${API_BASE}/health`, { credentials: 'include' });
-      console.log('API Server is healthy');
     } catch (err) {
       console.warn('API Server unreachable. Ensure Node.js server is running on port 3001.');
     }
@@ -39,7 +38,8 @@ class StorageService {
       username: user.username,
       fullName: user.full_name || user.fullName || user.name || user.username,
       role: isSystemAdmin ? UserRole.HEAD_ADMIN : this.normalizeRole(user.role),
-      lastLogin: user.lastLogin,
+      lastLogin: user.last_login || user.lastLogin,
+      isActive: user.is_active !== false,
     };
   }
 
@@ -104,7 +104,7 @@ class StorageService {
         price: parseFloat(item.unit_cost || item.price) || 0,
         serialNumber: item.item_code || item.serial || '',
         description: item.description || '',
-        lowStockThreshold: 10,
+        lowStockThreshold: parseInt(item.reorder_level || item.low_stock_threshold, 10) || 10,
         createdAt: item.created_at || new Date().toISOString(),
       }));
     } catch (err) {
@@ -123,6 +123,7 @@ class StorageService {
         price: item.price,
         serial: item.serialNumber,
         category: item.category,
+        lowStockThreshold: item.lowStockThreshold,
       }),
     });
   }
@@ -205,6 +206,43 @@ class StorageService {
     return { imported, skipped };
   }
 
+  // Users
+  async getUsers(): Promise<User[]> {
+    try {
+      const data = await this.fetchApi<{ success: boolean; users: any[] }>('/users');
+      if (!data || !data.users) return [];
+      return data.users.map(u => this.mapUser(u));
+    } catch (err) {
+      console.error('getUsers failed:', err);
+      return [];
+    }
+  }
+
+  async createUser(userData: Partial<User> & { password?: string }): Promise<void> {
+    await this.fetchApi('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: userData.username,
+        fullName: userData.fullName,
+        password: userData.password,
+        role: userData.role,
+        departmentId: userData.departmentId,
+      }),
+    });
+  }
+
+  async updateUser(userData: Partial<User>): Promise<void> {
+    await this.fetchApi(`/users/${userData.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        username: userData.username,
+        fullName: userData.fullName,
+        role: userData.role,
+        departmentId: userData.departmentId,
+      }),
+    });
+  }
+
   // General Actions
   async delete(storeName: string, id: string): Promise<void> {
     await this.fetchApi(`/${storeName}/${id}`, {
@@ -247,11 +285,12 @@ class StorageService {
     }
   }
 
-  // Generic methods map to existing API
+  // Generic methods
   async getAll<T>(storeName: string): Promise<T[]> {
     if (storeName === 'inventory') return await this.getInventory() as T[];
     if (storeName === 'assets') return await this.getAssets() as T[];
     if (storeName === 'logs') return await this.getActivityLogs() as T[];
+    if (storeName === 'users') return await this.getUsers() as T[];
     return [];
   }
 
@@ -275,7 +314,6 @@ class StorageService {
     }
   }
 
-  // Support for generic save/put used in new UI
   async save(storeName: string, data: any): Promise<void> {
     const endpoint = storeName === STORES.INVENTORY ? '/inventory' : (storeName === STORES.ASSETS ? '/assets' : `/${storeName}`);
     await this.fetchApi(endpoint, {

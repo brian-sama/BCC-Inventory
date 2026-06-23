@@ -1,8 +1,8 @@
-
 import React from 'react';
 import { storage, STORES } from '../services/storageService';
 import { User } from '../types';
 import PageHeader from '../components/ui/PageHeader';
+import { useToast } from '../components/ToastProvider';
 
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -12,10 +12,15 @@ interface ReportsProps {
 }
 
 const Reports: React.FC<ReportsProps> = ({ user }) => {
+    const { showToast } = useToast();
+
     const downloadCSV = async (type: 'inventory' | 'assets') => {
         try {
             const data = await storage.getAll(type === 'inventory' ? STORES.INVENTORY : STORES.ASSETS);
-            if (data.length === 0) return alert('No data to export.');
+            if (data.length === 0) {
+                showToast('No data available to export.', 'warning');
+                return;
+            }
 
             const headers = Object.keys(data[0]);
             const csvContent = [
@@ -31,24 +36,26 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', `Bulawayo_SIMS_${type}_Report_${new Date().toISOString().split('T')[0]}.csv`);
-
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
             setTimeout(() => URL.revokeObjectURL(url), 200);
 
             await storage.logActivity(user.id, user.username, 'EXPORT_CSV', `Exported ${type} CSV report.`);
+            showToast(`${type === 'inventory' ? 'Inventory' : 'Asset'} CSV exported successfully.`, 'success');
         } catch (err) {
             console.error('Export failed:', err);
-            alert('Failed to generate CSV. Please check the console.');
+            showToast('Failed to generate CSV. Please try again.', 'error');
         }
     };
 
     const downloadPDF = async (type: 'inventory' | 'assets') => {
         try {
             const data = await storage.getAll(type === 'inventory' ? STORES.INVENTORY : STORES.ASSETS);
-            if (data.length === 0) return alert('No data to export.');
+            if (data.length === 0) {
+                showToast('No data available to export.', 'warning');
+                return;
+            }
 
             const doc = new jsPDF('l', 'mm', 'a4');
             const title = type === 'inventory' ? 'Inventory Audit Register' : 'Asset Register';
@@ -73,9 +80,10 @@ const Reports: React.FC<ReportsProps> = ({ user }) => {
 
             doc.save(`Bulawayo_SIMS_${type}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
             await storage.logActivity(user.id, user.username, 'EXPORT_PDF', `Exported ${type} PDF report.`);
+            showToast(`${type === 'inventory' ? 'Inventory' : 'Asset'} PDF exported successfully.`, 'success');
         } catch (err) {
             console.error('PDF Export failed:', err);
-            alert('Failed to generate PDF. Please check the console.');
+            showToast('Failed to generate PDF. Please try again.', 'error');
         }
     };
 
@@ -110,10 +118,10 @@ const ReportCard: React.FC<{ title: string, desc: string, onCSV: () => void, onP
             <p className="text-sm text-civic-muted dark:text-slate-400 mb-6">{desc}</p>
         </div>
         <div className="flex flex-col gap-3">
-            <button onClick={onCSV} className="civic-button-secondary w-full text-xs py-2">
+            <button type="button" onClick={onCSV} className="civic-button-secondary w-full text-xs py-2">
                 Download CSV
             </button>
-            <button onClick={onPDF} className="civic-button-primary w-full text-xs py-2">
+            <button type="button" onClick={onPDF} className="civic-button-primary w-full text-xs py-2">
                 Download PDF Register
             </button>
         </div>

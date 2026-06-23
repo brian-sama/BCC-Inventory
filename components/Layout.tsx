@@ -30,9 +30,9 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     { name: 'Inventory', icon: ICONS.Inventory, path: '/inventory', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.STOCK_TAKER] },
     { name: 'Assets', icon: ICONS.Assets, path: '/assets', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN, UserRole.ASSET_ADDER] },
     { name: 'Reports', icon: ICONS.Reports, path: '/reports', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
-    { name: 'Audit Trail', icon: ICONS.Reports, path: '/audit-trail', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
-    { name: 'Analytics', icon: ICONS.Dashboard, path: '/analytics', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
-    { name: 'User Management', icon: ICONS.Assets, path: '/users', roles: [UserRole.HEAD_ADMIN] },
+    { name: 'Audit Trail', icon: ICONS.History, path: '/audit-trail', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
+    { name: 'Analytics', icon: ICONS.BarChart, path: '/analytics', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
+    { name: 'User Management', icon: ICONS.User, path: '/users', roles: [UserRole.HEAD_ADMIN] },
     { name: 'Settings', icon: ICONS.Settings, path: '/settings', roles: [UserRole.ADMIN, UserRole.HEAD_ADMIN] },
   ];
 
@@ -59,11 +59,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
-              <nav className="hidden md:ml-8 md:flex md:space-x-2">
+              <nav className="hidden md:ml-8 md:flex md:space-x-2" aria-label="Main navigation">
                 {filteredNavItems.map((item) => (
                   <NavLink
                     key={item.name}
                     to={item.path}
+                    end={item.path === '/'}
                     className={({ isActive }) => `
                       inline-flex h-full items-center border-b-2 px-3 pt-1 text-sm font-medium transition-colors
                       ${isActive
@@ -71,7 +72,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                         : 'border-transparent text-civic-muted hover:border-slate-300 hover:text-civic-text dark:text-slate-400 dark:hover:text-slate-200'}
                     `}
                   >
-                    <item.icon className="w-4 h-4 mr-2" />
+                    <item.icon className="w-4 h-4 mr-2" aria-hidden="true" />
                     {item.name}
                   </NavLink>
                 ))}
@@ -86,27 +87,31 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                   <p className="text-[10px] capitalize text-civic-muted dark:text-slate-400">{user.role}</p>
                 </div>
                 <button
+                  type="button"
                   onClick={onLogout}
                   className="focus-ring rounded-full p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                  aria-label="Sign out"
                   title="Sign Out"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
                   </svg>
                 </button>
               </div>
 
               <button
+                type="button"
                 onClick={() => setIsDark(!isDark)}
                 className="focus-ring rounded-full p-2 text-civic-muted transition-colors hover:bg-slate-100 hover:text-civic-text dark:text-slate-400 dark:hover:bg-slate-800"
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                 title="Toggle Theme"
               >
                 {isDark ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12h2.25m.386-6.364 1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12h2.25m.386-6.364 1.591-1.591M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
                   </svg>
                 )}
@@ -115,10 +120,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
               {/* Mobile menu button */}
               <div className="flex items-center md:hidden">
                 <button
+                  type="button"
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                   className="focus-ring inline-flex items-center justify-center rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-500 dark:hover:bg-slate-800"
+                  aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+                  aria-expanded={isMobileMenuOpen ? 'true' : 'false'}
                 >
-                  <span className="sr-only">Open main menu</span>
                   {isMobileMenuOpen ? (
                     <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -137,11 +144,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
           <div className="bg-white md:hidden border-t border-civic-border dark:border-slate-800 dark:bg-slate-900">
-            <div className="pt-2 pb-3 space-y-1 px-2">
+            <nav className="pt-2 pb-3 space-y-1 px-2" aria-label="Mobile navigation">
               {filteredNavItems.map((item) => (
                 <NavLink
                   key={item.name}
                   to={item.path}
+                  end={item.path === '/'}
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={({ isActive }) => `
                     flex items-center gap-3 px-3 py-2 rounded-lg text-base font-medium transition-colors
@@ -150,15 +158,15 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                       : 'text-civic-muted hover:bg-slate-50 hover:text-civic-text dark:text-slate-400 dark:hover:bg-slate-800/50'}
                   `}
                 >
-                  <item.icon className="w-5 h-5" />
+                  <item.icon className="w-5 h-5" aria-hidden="true" />
                   {item.name}
                 </NavLink>
               ))}
-            </div>
+            </nav>
             <div className="px-4 pb-4 pt-4 border-t border-civic-border dark:border-slate-800">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
-                  <ICONS.User className="w-5 h-5 text-slate-500" />
+                  <ICONS.User className="w-5 h-5 text-slate-500" aria-hidden="true" />
                 </div>
                 <div>
                   <div className="text-base font-medium text-civic-text dark:text-white">{user.username}</div>
@@ -166,6 +174,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={onLogout}
                 className="focus-ring mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-civic-sm transition-colors hover:bg-red-700"
               >
