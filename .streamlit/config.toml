@@ -1,7 +1,0 @@
-[server]
-enableCORS = false
-enableXsrfProtection = false
-cookieSecure = false
-
-[browser]
-gatherUsageStats = false

@@ -1,7 +1,6 @@
 # Secrets & Environment
 .env
 .env.*
-**/.streamlit/secrets.toml
 
 # Logs
 logs
