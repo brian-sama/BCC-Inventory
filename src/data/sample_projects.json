@@ -1,0 +1,41 @@
+[
+  {
+    "projectId": "PROJ-2025-001",
+    "projectName": "EmpowerFest 2025",
+    "programContext": "Global Action Month (GAM) 2025",
+    "organizationHeader": {
+      "line1": "MPILO OPPORTUNISTIC INFECTIONS CLINIC",
+      "line2": "OLD VICTORIA FALLS ROAD, MZILIKAZI",
+      "line3": "BULAWAYO",
+      "tel": "09-202507",
+      "email": "mmpztrust@zol.co.zw"
+    },
+    "description": "Two activities will be conducted during Global Action Month (GAM) 2025. The first is the Empower Festival 2025, a vibrant youth-centered event in Bulawayo celebrating the theme 'My Health, My Choice.' The festival showcases interactive activities, health education, and entertainment. The second activity is a Youth Interactive Dialogue at St. Peter's, a focused engagement bringing together young people to discuss what 'My Health, My Choice' means to them and their engagement role.",
+    "categories": [
+      {
+        "categoryName": "Empower Fest",
+        "items": [
+          { "description": "Backdrop banner material", "quantity": 1, "unitCost": 85.00 },
+          { "description": "Teardrop banner (4 metres)", "quantity": 1, "unitCost": 90.00 },
+          { "description": "Tshirts", "quantity": 40, "unitCost": 6.00 },
+          { "description": "Caps", "quantity": 40, "unitCost": 4.00 },
+          { "description": "Glossy hard manilla", "quantity": 1, "unitCost": 18.00 },
+          { "description": "Emoji stickers (pack)", "quantity": 1, "unitCost": 10.00 },
+          { "description": "Balloons (pack)", "quantity": 1, "unitCost": 8.00 },
+          { "description": "Colour powder", "quantity": 8, "unitCost": 8.00 },
+          { "description": "Whistles", "quantity": 7, "unitCost": 0.50 }
+        ]
+      },
+      {
+        "categoryName": "Youth Interactive",
+        "items": [
+          { "description": "Mobilisation Fee", "quantity": 1, "unitCost": 10.00 },
+          { "description": "Vaseline (Case of 10)", "quantity": 10, "unitCost": 9.80 },
+          { "description": "Bath Soap (Case of 24)", "quantity": 5, "unitCost": 15.01 }
+        ]
+      }
+    ],
+    "preparedBy": "Brian D Magagula",
+    "date": "11/11/2025"
+  }
+]
